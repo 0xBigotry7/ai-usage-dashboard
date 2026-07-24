@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { normalizeCodexUsage } from "../collector/providers/codex.mjs";
+import { normalizeDeepSeekBalance } from "../collector/providers/deepseek.mjs";
+import { normalizeGitHubCopilotUsage } from "../collector/providers/github-copilot.mjs";
 import { normalizeKimiUsage } from "../collector/providers/kimi.mjs";
+import { normalizeOpenAIAdminUsage } from "../collector/providers/openai-api.mjs";
+import { normalizeOpenRouterUsage } from "../collector/providers/openrouter.mjs";
+import { providerCatalog } from "../collector/providers/index.mjs";
 import { estimateWeeklyQuotaTokens } from "../collector/quota-estimate.mjs";
 import {
   mergeRemoteProviderRows,
@@ -107,6 +112,126 @@ test("normalizes Kimi weekly and five-hour server windows", () => {
   );
   assert.equal(result.windows[0].usedPercent, 10);
   assert.equal(result.windows[1].usedPercent, 39);
+});
+
+test("normalizes official OpenAI organization usage by model", () => {
+  const result = normalizeOpenAIAdminUsage({
+    data: [
+      {
+        results: [
+          {
+            model: "gpt-example",
+            input_tokens: 1_200,
+            output_tokens: 300,
+            input_audio_tokens: 20,
+            output_audio_tokens: 10,
+            num_model_requests: 4,
+          },
+          {
+            model: "gpt-example-mini",
+            input_tokens: 500,
+            output_tokens: 100,
+            num_model_requests: 2,
+          },
+        ],
+      },
+    ],
+  });
+
+  assert.equal(result.state, "ready");
+  assert.equal(result.tokenUsage.basis, "api_usage");
+  assert.equal(result.tokenUsage.estimated, false);
+  assert.equal(result.tokenUsage.totalTokens, 2_130);
+  assert.equal(result.tokenUsage.requestCount, 6);
+  assert.deepEqual(
+    result.tokenUsage.models.map((model) => [
+      model.id,
+      model.estimatedTokens,
+      model.requestCount,
+    ]),
+    [
+      ["gpt-example", 1_530, 4],
+      ["gpt-example-mini", 600, 2],
+    ],
+  );
+});
+
+test("normalizes OpenRouter key limits for the platform reset period", () => {
+  const result = normalizeOpenRouterUsage({
+    data: {
+      label: "dashboard",
+      is_free_tier: false,
+      limit: 50,
+      limit_remaining: 37.5,
+      limit_reset: "weekly",
+      usage_weekly: 12.5,
+    },
+  });
+
+  assert.equal(result.windows[0].id, "weekly");
+  assert.equal(result.windows[0].usedPercent, 25);
+  assert.equal(result.balance.value, 37.5);
+  assert.equal(result.balance.unit, "USD");
+});
+
+test("normalizes DeepSeek balance without inventing a quota window", () => {
+  const result = normalizeDeepSeekBalance({
+    is_available: true,
+    balance_infos: [
+      { currency: "CNY", total_balance: "110.00" },
+      { currency: "USD", total_balance: "8.50" },
+    ],
+  });
+
+  assert.equal(result.state, "ready");
+  assert.deepEqual(result.windows, []);
+  assert.equal(result.balance.value, 110);
+  assert.equal(result.balance.unit, "CNY");
+  assert.match(result.message, /CNY \/ USD/);
+});
+
+test("normalizes GitHub Copilot AI Credits with an optional monthly limit", () => {
+  const result = normalizeGitHubCopilotUsage(
+    {
+      usageItems: [
+        {
+          product: "Copilot AI Credits",
+          model: "GPT-5",
+          grossQuantity: 80,
+        },
+        {
+          product: "Copilot AI Credits",
+          model: "GPT-5 mini",
+          netQuantity: 20,
+        },
+      ],
+    },
+    { monthlyLimit: 200 },
+  );
+
+  assert.equal(result.windows[0].id, "monthly");
+  assert.equal(result.windows[0].usedPercent, 50);
+  assert.equal(result.balance.value, 100);
+  assert.match(result.message, /GPT-5 80/);
+});
+
+test("enables optional providers only after their local configuration exists", () => {
+  const defaultCatalog = providerCatalog({});
+  assert.deepEqual(
+    defaultCatalog.filter((provider) => provider.enabled).map(({ id }) => id),
+    ["codex", "kimi"],
+  );
+
+  const configuredCatalog = providerCatalog({
+    OPENROUTER_API_KEY: "synthetic-key",
+    DEEPSEEK_API_KEY: "synthetic-key",
+  });
+  assert.deepEqual(
+    configuredCatalog
+      .filter((provider) => provider.enabled)
+      .map(({ id }) => id),
+    ["codex", "kimi", "openrouter", "deepseek"],
+  );
 });
 
 test("estimates weekly token equivalents without double-counting scoped models", () => {
@@ -257,6 +382,25 @@ test("remote snapshot whitelist strips credentials and local host details", () =
             assumption: "Synthetic fixture",
             localPath: "/private/must-not-leave-the-mac",
           },
+          {
+            basis: "api_usage",
+            estimated: false,
+            totalTokens: 98_000,
+            periodSeconds: 604_800,
+            requestCount: 17,
+            models: [
+              {
+                id: "gpt-example",
+                label: "gpt-example",
+                estimatedTokens: 98_000,
+                requestCount: 17,
+                countedInTotal: true,
+                rawRequestId: "must-not-leave-the-mac",
+              },
+            ],
+            assumption: "Synthetic official usage fixture",
+            adminKey: "must-not-leave-the-mac",
+          },
         ],
       },
     ],
@@ -274,6 +418,9 @@ test("remote snapshot whitelist strips credentials and local host details", () =
     "session_logs",
   );
   assert.equal(snapshot.providers[0].tokenEstimates[0].sessionCount, 8);
+  assert.equal(snapshot.providers[0].tokenEstimates[1].basis, "api_usage");
+  assert.equal(snapshot.providers[0].tokenEstimates[1].estimated, false);
+  assert.equal(snapshot.providers[0].tokenEstimates[1].requestCount, 17);
   assert.equal(snapshot.collector.syncMode, "sanitized-push");
 });
 

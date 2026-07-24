@@ -1,6 +1,8 @@
 # AI Usage Dashboard
 
-一个本地优先、可扩展的 AI 用量 Dashboard，适合放在桌面浏览器或外接常亮小屏上。
+一个本地优先、可扩展的 AI 用量 Dashboard，可同时展示配额窗口、官方 API
+用量、余额和 Token 估算。适合桌面浏览器、外接常亮小屏，也附带原生 macOS
+顶栏预览。
 
 [English](README.md)
 
@@ -8,13 +10,23 @@
 
 不同 AI 编程工具把配额、重置时间和 Token 记录放在不同位置。本项目把它们归一化到同一个界面，同时避免把平台凭证或对话正文发送到浏览器。
 
-项目明确区分三个概念：
+项目明确区分这些概念：
 
 - **平台配额**：平台返回的已用百分比和重置时间；
+- **官方 API 用量**：文档化计费接口返回的真实 Token 或 Credits；
 - **本机日志 Token**：本地 CLI 会话日志中记录到的 Token 计数；
 - **Token 等效估算**：配额百分比乘以可配置的周容量。
 
-后两种口径会同时显示，但永远不会相加。
+几种口径覆盖范围不同，会分开显示，永远不会相加。
+
+## 主要功能
+
+- 采集器只监听 `127.0.0.1`，单个平台异常不会拖垮整个 Dashboard；
+- 展示真实配额窗口、重置时间、余额及可获得的官方 API 用量；
+- 可隐藏平台、设置 60% / 70% / 80% 关注阈值，并显示风险状态；
+- 支持键盘快捷键、一键复制脱敏摘要、小屏紧凑模式；
+- 原生 macOS 顶栏每 60 秒预览最高用量和各平台状态；
+- 可选 Cloudflare 多设备汇总，云端只接受严格白名单快照。
 
 ## 当前内置接入
 
@@ -22,9 +34,14 @@
 | --- | --- | --- | --- |
 | OpenAI Codex | 已有 Codex CLI OAuth 登录态 | 配额换算 + 本机 `token_count` 日志 | 只读 CLI 文件，不改写凭证 |
 | Kimi Code | API Key 或尚未过期的 CLI 登录态 | 配额换算 | Key 保存在仓库外的 `0600` 文件 |
-| 自定义快照 | 任意实现归一化协议的采集器 | 两种口径均可 | 云端只接受严格白名单字段 |
+| OpenAI API | 官方 Organization Usage API | 过去 7 天真实模型 Token 与请求数 | Admin Key 只留在本机采集器 |
+| OpenRouter | 官方当前 Key 用量接口 | Key 消费、上限和重置周期 | API Key 只留在本机采集器 |
+| DeepSeek API | 官方余额接口 | 只显示余额，不虚构配额窗口 | API Key 只留在本机采集器 |
+| GitHub Copilot | 官方用户 AI Credits 计费接口 | 本月 Credits，可选配置上限后显示百分比 | 仅需 `Plan: read` 的 Fine-grained Token |
+| 自定义快照 | 任意实现归一化协议的采集器 | 任意归一化口径 | 云端只接受严格白名单字段 |
 
-内置配额接入使用官方客户端正在使用、但没有承诺为稳定第三方 API 的端点，平台改版后可能需要更新。
+Codex 和 Kimi 的订阅配额来自官方客户端正在使用、但没有承诺为稳定第三方
+API 的端点；其余直接接入均使用平台文档化 API。
 
 ## 快速开始
 
@@ -47,7 +64,24 @@ npm run configure:kimi
 
 输入过程不会回显。Key 保存在 `~/.usage-hub/env`，不会进入 Git、浏览器或历史数据库。
 
-## 两种 Token 算法
+其他平台可按需逐个配置：
+
+```bash
+npm run configure:provider -- openai-api
+npm run configure:provider -- openrouter
+npm run configure:provider -- deepseek
+npm run configure:provider -- github-copilot
+```
+
+可选平台只有在本机配置完整后才会出现，不会用一排“等待配置”卡片干扰日常使用。
+
+## 用量与 Token 口径
+
+### 官方 API 用量
+
+OpenAI Organization Usage 会按模型返回真实 Token 和请求数；GitHub 返回
+AI Credits，OpenRouter 返回 Key 消费，DeepSeek 返回账户余额。这些数据不会被
+强行换算成订阅配额。
 
 ### 配额百分比换算
 
@@ -67,11 +101,23 @@ Codex 适配器只读取本地 JSONL 中的 `token_count` 和模型元数据，�
 USAGE_HUB_CODEX_LOG_ESTIMATE=off npm run local
 ```
 
+## macOS 顶栏
+
+原生顶栏程序每 60 秒读取同一个本机采集器，在菜单栏显示当前最高用量，展开后
+可看各平台百分比、余额和重置时间。它不会直接访问平台，也不保存凭证。
+
+```bash
+npm run build:menubar
+open "dist/AI Usage Dashboard Menu Bar.app"
+```
+
+开发模式可运行 `npm run menubar`，需要 macOS 14 或更新版本。
+
 ## 云端与自定义 Provider
 
 项目可部署到 Cloudflare Workers + D1。采集器通过独立写入令牌上传脱敏快照，查看者使用另一个查看码换取安全 Cookie。
 
-公开仓库不内置任何特定远程机器、私有账号或平台专用的远端采集脚本。私有采集器可以保留在自己的机器上，只向本项目发送归一化快照。这也是未来扩展 Gemini、Copilot、Cursor 等平台的统一接口。
+公开仓库不内置任何特定远程机器、私有账号或平台专用的远端采集脚本。私有采集器可以保留在自己的机器上，只向本项目发送归一化快照。
 
 ## 文档
 

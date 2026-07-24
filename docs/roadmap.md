@@ -3,9 +3,10 @@
 ## Near term
 
 - Extract the custom snapshot JSON Schema for third-party collectors.
-- Add adapter capability metadata and per-provider enable/disable settings.
-- Add warning thresholds and optional notifications.
+- Add adapter capability metadata to the collector discovery endpoint.
+- Add native system notifications for configurable critical thresholds.
 - Add fixture-based compatibility monitoring for unstable provider endpoints.
+- Add signed and notarized menu bar release artifacts.
 
 ## Provider expansion candidates
 
@@ -15,8 +16,9 @@ These are research directions, not current support:
    reimplementing log parsers for every supported coding agent.
 2. **Gemini CLI** — ingest model/session statistics exposed by its documented
    `/stats model` behavior or a stable local record.
-3. **GitHub Copilot CLI** — ingest per-model session usage when a stable
-   non-interactive source is available.
+3. **GitHub organization AI Credits** — extend the existing personally billed
+   user adapter for organization-managed seats without broadening default
+   token permissions.
 4. **Cursor** — prefer documented team/enterprise APIs over browser-cookie
    extraction.
 5. **OpenCode, Kilo, Qwen, MiniMax, and other coding agents** — add through

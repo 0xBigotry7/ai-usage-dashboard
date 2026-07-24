@@ -1,4 +1,11 @@
-const PROVIDER_ORDER = ["codex", "kimi"];
+const PROVIDER_ORDER = [
+  "codex",
+  "kimi",
+  "openai-api",
+  "openrouter",
+  "github-copilot",
+  "deepseek",
+];
 const PROVIDER_ID_PATTERN = /^[a-z0-9][a-z0-9_-]{0,31}$/;
 const PROVIDER_STATES = new Set([
   "ready",
@@ -56,6 +63,9 @@ function sanitizeTokenModel(value: unknown, basis: string) {
         }
       : {}),
     estimatedTokens: boundedToken(input.estimatedTokens),
+    ...(basis === "api_usage"
+      ? { requestCount: boundedToken(input.requestCount) }
+      : {}),
     countedInTotal: input.countedInTotal === true,
   };
 }
@@ -64,7 +74,13 @@ function sanitizeTokenUsage(value: unknown) {
   if (!value || typeof value !== "object") return null;
   const input = value as Record<string, unknown>;
   const basis = boundedString(input.basis, 40);
-  if (basis !== "quota_percentage" && basis !== "session_logs") return null;
+  if (
+    basis !== "quota_percentage" &&
+    basis !== "session_logs" &&
+    basis !== "api_usage"
+  ) {
+    return null;
+  }
   const models = (Array.isArray(input.models) ? input.models : [])
     .slice(0, 24)
     .map((model) => sanitizeTokenModel(model, basis))
@@ -83,6 +99,20 @@ function sanitizeTokenUsage(value: unknown) {
       assumption:
         boundedString(input.assumption, 240) ||
         "按周配额百分比乘以订阅容量估算。",
+    };
+  }
+  if (basis === "api_usage") {
+    return {
+      basis,
+      estimated: false,
+      totalTokens: boundedToken(input.totalTokens),
+      periodSeconds:
+        boundedNumber(input.periodSeconds, 60, 31_536_000) || 604_800,
+      requestCount: boundedNumber(input.requestCount, 0, 1_000_000_000) || 0,
+      models,
+      assumption:
+        boundedString(input.assumption, 240) ||
+        "来自平台官方 Usage API 的模型用量。",
     };
   }
   return {
@@ -255,7 +285,7 @@ export function mergeRemoteProviderRows(rows: RemoteSnapshotRow[]) {
     return {
       generatedAt: generatedAt || new Date().toISOString(),
       collector: {
-        version: "0.5.0",
+        version: "0.6.0",
         state: providers.some((provider) => provider.state === "ready")
           ? "online"
           : "attention",

@@ -103,7 +103,7 @@ export async function collectCodexUsage(env = process.env) {
       headers: {
         Authorization: `Bearer ${accessToken}`,
         Accept: "application/json",
-        "User-Agent": "AI-Usage-Dashboard/0.5",
+        "User-Agent": "AI-Usage-Dashboard/0.6",
         ...(accountId ? { "ChatGPT-Account-Id": accountId } : {}),
       },
     });

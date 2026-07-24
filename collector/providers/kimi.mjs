@@ -159,7 +159,7 @@ export async function collectKimiUsage(env = process.env) {
       headers: {
         Authorization: `Bearer ${token}`,
         Accept: "application/json",
-        "User-Agent": "AI-Usage-Dashboard/0.5",
+        "User-Agent": "AI-Usage-Dashboard/0.6",
         "X-Msh-Platform": "kimi_code_cli",
         ...(deviceId ? { "X-Msh-Device-Id": deviceId } : {}),
       },

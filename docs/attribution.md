@@ -6,7 +6,7 @@ This project documents both direct dependencies and product inspiration.
 
 | Project | Relationship | Code copied? | License |
 | --- | --- | --- | --- |
-| [CodexBar](https://github.com/steipete/CodexBar) | Inspired the compact quota display, provider registry, and local JSON service direction | No | MIT |
+| [CodexBar](https://github.com/steipete/CodexBar) | Inspired the compact quota display, provider registry, warning-threshold direction, and local JSON service | No | MIT |
 | [ccusage](https://github.com/ryoppippi/ccusage) | Demonstrates a broad, provider-neutral approach to local CLI usage analysis; a future optional adapter is on the roadmap | No | MIT |
 | [Kimi Code](https://github.com/MoonshotAI/kimi-code) | Public CLI structure and behavior informed Kimi compatibility | No copied implementation | MIT |
 | [vinext](https://github.com/cloudflare/vinext) | Runtime used to build the Next.js app for Cloudflare | Direct dependency | MIT |
@@ -32,6 +32,10 @@ The lockfile is the authoritative version record.
 
 - [Using Codex with a ChatGPT plan](https://help.openai.com/en/articles/11369540-using-codex-with-your-chatgpt-plan)
 - [Kimi Code repository](https://github.com/MoonshotAI/kimi-code)
+- [OpenAI Organization Usage API](https://developers.openai.com/api/reference/resources/admin/subresources/organization/subresources/usage)
+- [OpenRouter current API key usage](https://openrouter.ai/docs/api/api-reference/api-keys/get-current-key)
+- [DeepSeek user balance API](https://api-docs.deepseek.com/api/get-user-balance/)
+- [GitHub billing AI credit usage](https://docs.github.com/en/rest/billing/usage)
 - [Cloudflare Vite plugin](https://developers.cloudflare.com/workers/vite-plugin/)
 
 ## Trademark and affiliation

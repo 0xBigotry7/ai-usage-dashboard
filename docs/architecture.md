@@ -10,6 +10,7 @@ flowchart LR
   B --> D["Loopback collector"]
   D --> E["SQLite history"]
   D --> F["Local dashboard"]
+  D --> J["macOS menu bar"]
   D -. "sanitized HTTPS push" .-> G["Cloudflare Worker + D1"]
   H["Private or third-party collector"] -. "same normalized schema" .-> G
   G --> I["Authenticated hosted dashboard"]
@@ -26,8 +27,10 @@ flowchart LR
 3. normalizes windows, reset times, balance, and status;
 4. attaches zero or more independent token estimates.
 
-The included adapters are Codex and Kimi Code. New adapters do not require UI
-changes when they follow the normalized schema.
+The included adapters are Codex, Kimi Code, OpenAI Organization Usage,
+OpenRouter, DeepSeek balance, and GitHub Copilot AI Credits. Optional
+documented-API adapters are enabled only when their local configuration exists.
+New adapters do not require UI changes when they follow the normalized schema.
 
 ### Local collector
 
@@ -47,6 +50,10 @@ from the next outbound push, preventing loops.
 
 The normalized provider object can contain `tokenEstimates[]`.
 
+`api_usage` contains exact model token counters returned by a documented
+provider usage endpoint. It sets `estimated: false` and may attach a request
+count.
+
 `quota_percentage` multiplies the provider's weekly percentage by a configured
 capacity. It can represent account-wide usage but relies on a calibration
 assumption.
@@ -57,6 +64,16 @@ not inspect or export message bodies. It can miss other devices and deleted
 logs.
 
 The UI compares these methods and never adds them together.
+
+### Display clients
+
+The React dashboard is the full client. Provider toggles, warning thresholds,
+compact mode, and copied summaries are browser-local preferences and do not
+change collection.
+
+The native macOS menu bar companion is a second read-only client. It polls the
+loopback API once per minute, displays the highest percentage in the menu bar,
+and never queries providers or stores credentials itself.
 
 ### Reset-time inference
 

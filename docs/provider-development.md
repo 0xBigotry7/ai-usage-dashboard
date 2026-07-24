@@ -62,7 +62,47 @@ an observed history drop.
 
 Use `quota_percentage` when multiplying a real weekly percentage by a
 configured capacity. Use `session_logs` only for local numeric token counters.
-Keep estimates separate in `tokenEstimates[]`; do not add overlapping methods.
+Use `api_usage` for exact tokens returned by a documented usage endpoint; set
+`estimated: false` and include `requestCount` when available. Keep methods
+separate in `tokenEstimates[]`; do not add overlapping scopes.
+
+```js
+{
+  basis: "api_usage",
+  estimated: false,
+  totalTokens: 123456,
+  periodSeconds: 604800,
+  requestCount: 42,
+  models: [
+    {
+      id: "example-model",
+      label: "example-model",
+      estimatedTokens: 123456,
+      requestCount: 42,
+      countedInTotal: true
+    }
+  ],
+  assumption: "Exact usage returned by the provider API."
+}
+```
+
+## Registry and configuration
+
+Add the adapter to `providerAdapters` in `collector/providers/index.mjs`.
+Default adapters may use `defaultEnabled: true`. Optional adapters should
+provide a credential-presence predicate:
+
+```js
+{
+  id: "example-ai",
+  name: "Example AI",
+  configured: (env) => Boolean(env.EXAMPLE_API_KEY?.trim()),
+  collect: collectExampleUsage
+}
+```
+
+Do not render every unsupported provider as an error card. An optional adapter
+should disappear cleanly until configured.
 
 ## Testing checklist
 

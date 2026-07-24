@@ -45,6 +45,7 @@ next-env.d.ts
 /.wrangler/
 /outputs/
 /work/
+/apps/macos-menu-bar/.build/
 
 # Private provider overlays and machine-specific collectors.
 /.private/

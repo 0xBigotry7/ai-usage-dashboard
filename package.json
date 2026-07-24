@@ -1,7 +1,7 @@
 {
   "name": "ai-usage-dashboard",
-  "version": "0.5.0",
-  "description": "A local-first, extensible dashboard for AI quota windows and token estimates.",
+  "version": "0.6.0",
+  "description": "A local-first AI quota, API usage, token, and macOS menu bar dashboard.",
   "private": true,
   "license": "MIT",
   "repository": {
@@ -30,6 +30,9 @@
     "collector": "node --enable-source-maps collector/server.mjs",
     "local": "node scripts/run-local.mjs",
     "configure:kimi": "node scripts/configure-kimi.mjs",
+    "configure:provider": "node scripts/configure-provider.mjs",
+    "menubar": "swift run --package-path apps/macos-menu-bar UsageMenuBar",
+    "build:menubar": "node scripts/build-menu-bar.mjs",
     "configure:cloud": "node scripts/configure-cloud-sync.mjs",
     "generate:cloud-secrets": "node scripts/generate-cloud-secrets.mjs",
     "copy:view-code": "node scripts/copy-view-code.mjs",

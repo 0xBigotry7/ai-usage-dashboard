@@ -22,7 +22,7 @@ Local private state:
 
 | Path | Purpose |
 | --- | --- |
-| `~/.usage-hub/env` | Kimi, token calibration, and cloud-sync settings; mode `0600` |
+| `~/.usage-hub/env` | Provider keys, token calibration, and cloud-sync settings; mode `0600` |
 | `~/.usage-hub/usage.db` | Normalized local history; no credentials |
 | `~/.usage-hub/view-code` | Optional hosted viewer code; mode `0600` |
 
@@ -49,6 +49,52 @@ npm run configure:kimi
 The helper hides input and updates only `KIMI_CODE_API_KEY` in
 `~/.usage-hub/env`. Without a key, an unexpired Kimi CLI session is used as a
 temporary fallback.
+
+### Documented API adapters
+
+Each optional adapter is enabled automatically only after its required
+configuration exists:
+
+```bash
+npm run configure:provider -- openai-api
+npm run configure:provider -- openrouter
+npm run configure:provider -- deepseek
+npm run configure:provider -- github-copilot
+```
+
+The helper hides secret fields and updates `~/.usage-hub/env` with mode `0600`.
+It never prints a saved key.
+
+- **OpenAI API** requires an Admin API Key with access to Organization Usage.
+  It reports exact model tokens and requests over the past seven days. A normal
+  project API key cannot access this endpoint.
+- **OpenRouter** reports spend and limits for the configured key. Its window is
+  daily, weekly, or monthly according to the key's `limit_reset`.
+- **DeepSeek API** reports the account balance. Its documented endpoint does
+  not return a subscription quota window.
+- **GitHub Copilot** uses the user AI Credits billing endpoint. The fine-grained
+  token needs only `Plan: read`. User-level billing covers a personally billed
+  Copilot plan; organization-managed seats require an organization endpoint
+  and are not included by this adapter. Set the optional monthly credit limit
+  only if you want a percentage gauge.
+
+To override auto-discovery, select adapters explicitly:
+
+```text
+USAGE_HUB_PROVIDERS=codex,kimi,openrouter,deepseek
+```
+
+### macOS menu bar
+
+The menu bar companion reads `http://127.0.0.1:4317/api/usage` and therefore
+requires the local collector to be running.
+
+```bash
+npm run build:menubar
+open "dist/AI Usage Dashboard Menu Bar.app"
+```
+
+It targets macOS 14 or newer and contains no provider SDKs or credentials.
 
 ### Token-capacity calibration
 
@@ -132,6 +178,13 @@ and only credential-free normalized values are stored.
 | --- | --- | --- |
 | `KIMI_CODE_API_KEY` | local collector | Optional long-lived Kimi key |
 | `KIMI_CODE_BASE_URL` | local collector | Optional credential-free HTTPS base URL |
+| `OPENAI_ADMIN_KEY` | local collector | Optional OpenAI Organization Usage Admin key |
+| `OPENROUTER_API_KEY` | local collector | Optional OpenRouter key |
+| `DEEPSEEK_API_KEY` | local collector | Optional DeepSeek key |
+| `GITHUB_COPILOT_USERNAME` | local collector | User whose personally billed AI Credits are queried |
+| `GITHUB_COPILOT_TOKEN` | local collector | Fine-grained token with `Plan: read` |
+| `GITHUB_COPILOT_MONTHLY_CREDIT_LIMIT` | local collector | Optional local comparison limit |
+| `USAGE_HUB_PROVIDERS` | local collector | Optional explicit comma-separated adapter IDs |
 | `CODEX_HOME` | local collector | Optional Codex data directory |
 | `KIMI_CODE_HOME` | local collector | Optional Kimi data directory |
 | `USAGE_HUB_CODEX_LOG_ESTIMATE` | local collector | Set to `off` to disable local log estimation |

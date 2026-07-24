@@ -21,8 +21,12 @@ test("build contains the usage dashboard shell and protected remote routes", asy
   assert.match(dashboard, /AI Usage Dashboard/);
   assert.match(dashboard, /OpenAI Codex/);
   assert.match(dashboard, /Kimi Code/);
-  assert.match(dashboard, /Token 用量 · 双口径/);
-  assert.match(dashboard, /周 Token 双口径估算总览/);
+  assert.match(dashboard, /Token 用量 · 多口径/);
+  assert.match(dashboard, /周 Token · 多口径/);
+  assert.match(dashboard, /官方 API、配额换算与 CLI 日志/);
+  assert.match(dashboard, /Dashboard 显示设置/);
+  assert.match(dashboard, /关注阈值/);
+  assert.match(dashboard, /复制当前脱敏摘要/);
   assert.match(dashboard, /凭证不进入云端/);
   assert.match(dashboard, /PRIVATE DISPLAY/);
   assert.match(dashboard, /dashboard--compact/);

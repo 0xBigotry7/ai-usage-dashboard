@@ -21,18 +21,20 @@ type ModelTokenUsage = {
   usedPercent?: number;
   capacityTokens?: number;
   estimatedTokens: number;
+  requestCount?: number;
   countedInTotal: boolean;
 };
 
 type TokenUsage = {
-  basis: "quota_percentage" | "session_logs";
-  estimated: true;
+  basis: "quota_percentage" | "session_logs" | "api_usage";
+  estimated: boolean;
   totalTokens: number;
   capacityTokens?: number;
   usedPercent?: number;
   windowId?: string;
   periodSeconds?: number;
   sessionCount?: number;
+  requestCount?: number;
   models: ModelTokenUsage[];
   assumption: string;
 };
@@ -77,6 +79,13 @@ type HistoryPoint = {
 };
 
 const REFRESH_SECONDS = 60;
+const PREFERENCE_KEY = "ai-usage-dashboard.preferences.v1";
+const WARNING_LEVELS = [60, 70, 80];
+
+type DashboardPreferences = {
+  warningThreshold: number;
+  hiddenProviders: string[];
+};
 
 function getApiBase() {
   if (typeof window === "undefined") return "";
@@ -111,6 +120,17 @@ function formatTokens(value: number | null) {
 
 function exactTokens(value: number) {
   return `${new Intl.NumberFormat("zh-CN").format(value)} tokens`;
+}
+
+function formatBalance(value: number, unit: string) {
+  const normalizedUnit = unit.toUpperCase();
+  const prefix =
+    normalizedUnit === "USD" ? "$" : normalizedUnit === "CNY" ? "¥" : "";
+  const suffix =
+    prefix || !normalizedUnit || normalizedUnit === "CREDITS"
+      ? ""
+      : ` ${normalizedUnit}`;
+  return `${prefix}${formatNumber(value)}${suffix}`;
 }
 
 function formatCountdown(resetsAt: string | null) {
@@ -168,6 +188,23 @@ function getPrimaryWindow(provider: Provider) {
 function getTokenEstimates(provider: Provider) {
   if (provider.tokenEstimates?.length) return provider.tokenEstimates;
   return provider.tokenUsage ? [provider.tokenUsage] : [];
+}
+
+function tokenBasisLabel(basis: TokenUsage["basis"]) {
+  if (basis === "quota_percentage") return "配额百分比换算";
+  if (basis === "api_usage") return "官方 API 统计";
+  return "本机 CLI 日志";
+}
+
+function providerRisk(
+  provider: Provider,
+  warningThreshold: number,
+): "normal" | "warning" | "critical" {
+  const percent = getPrimaryWindow(provider)?.usedPercent;
+  if (percent === null || percent === undefined) return "normal";
+  if (percent >= Math.min(95, warningThreshold + 20)) return "critical";
+  if (percent >= warningThreshold) return "warning";
+  return "normal";
 }
 
 function normalizeBars(points: HistoryPoint[], provider: Provider) {
@@ -266,19 +303,15 @@ function ProviderTokenPanel({ estimates }: { estimates: TokenUsage[] }) {
   return (
     <section className="token-panel" aria-label="Token 用量估算">
       <div className="token-panel__heading">
-        <span className="eyebrow">Token 用量 · 双口径</span>
-        <small>两种算法独立展示，不相加</small>
+        <span className="eyebrow">Token 用量 · 多口径</span>
+        <small>官方统计与两种估算独立展示</small>
       </div>
       <div className="token-methods">
         {estimates.map((usage) => (
           <article className="token-method" key={usage.basis}>
             <header>
               <div>
-                <span>
-                  {usage.basis === "quota_percentage"
-                    ? "配额百分比换算"
-                    : "本机 CLI 日志"}
-                </span>
+                <span>{tokenBasisLabel(usage.basis)}</span>
                 <strong title={exactTokens(usage.totalTokens)}>
                   {formatTokens(usage.totalTokens)}
                 </strong>
@@ -288,9 +321,13 @@ function ProviderTokenPanel({ estimates }: { estimates: TokenUsage[] }) {
                   ? `${formatPercent(usage.usedPercent ?? null)} × ${formatTokens(
                       usage.capacityTokens ?? null,
                     )}`
-                  : `过去 7 天 · ${formatNumber(
-                      usage.sessionCount ?? 0,
-                    )} 个会话`}
+                  : usage.basis === "api_usage"
+                    ? `过去 7 天 · ${formatNumber(
+                        usage.requestCount ?? 0,
+                      )} 次请求`
+                    : `过去 7 天 · ${formatNumber(
+                        usage.sessionCount ?? 0,
+                      )} 个会话`}
               </small>
             </header>
             <div className="token-models">
@@ -305,7 +342,11 @@ function ProviderTokenPanel({ estimates }: { estimates: TokenUsage[] }) {
                           )} × ${formatTokens(
                             model.capacityTokens ?? null,
                           )} 周容量`
-                        : "token_count 增量"}
+                        : usage.basis === "api_usage"
+                          ? `${formatNumber(
+                              model.requestCount ?? 0,
+                            )} 次官方请求`
+                          : "token_count 增量"}
                       {model.countedInTotal ? "" : " · 独立额度，不计入总数"}
                     </small>
                   </div>
@@ -332,8 +373,11 @@ function TokenOverview({ providers }: { providers: Provider[] }) {
       logs: getTokenEstimates(provider).find(
         (estimate) => estimate.basis === "session_logs",
       ),
+      official: getTokenEstimates(provider).find(
+        (estimate) => estimate.basis === "api_usage",
+      ),
     }))
-    .filter(({ quota, logs }) => quota || logs);
+    .filter(({ quota, logs, official }) => quota || logs || official);
   const quotaTotal = providerEstimates.reduce(
     (sum, { quota }) => sum + (quota?.totalTokens || 0),
     0,
@@ -342,11 +386,16 @@ function TokenOverview({ providers }: { providers: Provider[] }) {
     (sum, { logs }) => sum + (logs?.totalTokens || 0),
     0,
   );
+  const officialTotal = providerEstimates.reduce(
+    (sum, { official }) => sum + (official?.totalTokens || 0),
+    0,
+  );
   const hasLogs = providerEstimates.some(({ logs }) => logs);
+  const hasOfficial = providerEstimates.some(({ official }) => official);
   return (
-    <section className="token-overview" aria-label="周 Token 双口径估算总览">
+    <section className="token-overview" aria-label="周 Token 多口径总览">
       <div className="token-overview__total">
-        <span className="eyebrow">本周 Token · 双口径</span>
+        <span className="eyebrow">本周 Token · 多口径</span>
         <div>
           <strong title={exactTokens(quotaTotal)}>
             {formatTokens(quotaTotal)}
@@ -358,20 +407,34 @@ function TokenOverview({ providers }: { providers: Provider[] }) {
             本机日志 <b title={exactTokens(logTotal)}>{formatTokens(logTotal)}</b>
           </p>
         ) : null}
+        {hasOfficial ? (
+          <p className="token-overview__official">
+            官方 API{" "}
+            <b title={exactTokens(officialTotal)}>
+              {formatTokens(officialTotal)}
+            </b>
+          </p>
+        ) : null}
       </div>
       <div className="token-overview__providers">
         {providerEstimates.length ? (
-          providerEstimates.map(({ provider, quota, logs }) => (
+          providerEstimates.map(({ provider, quota, logs, official }) => (
             <div
               key={provider.id}
               style={{ "--provider-accent": provider.accent } as React.CSSProperties}
             >
               <span>{provider.name}</span>
               <strong title={quota ? exactTokens(quota.totalTokens) : undefined}>
-                {quota ? formatTokens(quota.totalTokens) : "—"}
+                {quota
+                  ? formatTokens(quota.totalTokens)
+                  : official
+                    ? formatTokens(official.totalTokens)
+                    : "—"}
               </strong>
               <small>
-                {logs
+                {official
+                  ? `官方 API ${formatTokens(official.totalTokens)}`
+                  : logs
                   ? `本机日志 ${formatTokens(logs.totalTokens)}`
                   : "暂无本机日志估算"}
               </small>
@@ -382,8 +445,7 @@ function TokenOverview({ providers }: { providers: Provider[] }) {
         )}
       </div>
       <p className="token-overview__note">
-        配额换算覆盖账户整体但依赖容量假设；CLI 日志只统计本机可见记录。
-        两者互为参考，不应相加。
+        官方 API、配额换算与 CLI 日志覆盖范围不同。它们独立展示，不相加。
       </p>
     </section>
   );
@@ -392,9 +454,11 @@ function TokenOverview({ providers }: { providers: Provider[] }) {
 function ProviderCard({
   provider,
   history,
+  warningThreshold,
 }: {
   provider: Provider;
   history: HistoryPoint[];
+  warningThreshold: number;
 }) {
   const primary = getPrimaryWindow(provider);
   const fiveHour = provider.windows.find((window) => window.id === "five_hour");
@@ -403,10 +467,13 @@ function ProviderCard({
   const keyReset = fiveHour ? fiveHourReset : primaryReset;
   const bars = normalizeBars(history, provider);
   const isReady = provider.state === "ready";
+  const risk = providerRisk(provider, warningThreshold);
+  const hasQuota = primary?.usedPercent !== null && primary?.usedPercent !== undefined;
+  const hasWeeklyWindow = provider.windows.some((window) => window.id === "weekly");
 
   return (
     <article
-      className={`provider-card provider-card--${provider.id}`}
+      className={`provider-card provider-card--${provider.id} provider-card--risk-${risk}`}
       style={{ "--provider-accent": provider.accent } as React.CSSProperties}
     >
       <header className="provider-card__header">
@@ -419,9 +486,15 @@ function ProviderCard({
             <p>{provider.plan || "订阅状态未知"}</p>
           </div>
         </div>
-        <span className={`state-pill state-pill--${provider.state}`}>
+        <span
+          className={`state-pill state-pill--${provider.state} state-pill--risk-${risk}`}
+        >
           <i />
-          {providerStateLabel(provider)}
+          {isReady && risk === "critical"
+            ? "接近上限"
+            : isReady && risk === "warning"
+              ? "用量偏高"
+              : providerStateLabel(provider)}
         </span>
       </header>
 
@@ -434,30 +507,39 @@ function ProviderCard({
         >
           <div className="usage-ring__inside">
             <span>{formatPercent(primary?.usedPercent ?? null)}</span>
-            <small>本周已使用</small>
+            <small>{hasQuota ? `${primary?.label || "当前"}已使用` : "无配额窗口"}</small>
           </div>
         </div>
         <div className="provider-card__signal">
           <span className="eyebrow">下一次关键重置</span>
           <strong>
-            {keyReset.estimated && keyReset.resetsAt ? "预计 " : ""}
-            {formatCountdown(keyReset.resetsAt)}
+            {keyReset.resetsAt ? (
+              <>
+                {keyReset.estimated ? "预计 " : ""}
+                {formatCountdown(keyReset.resetsAt)}
+              </>
+            ) : (
+              "没有重置窗口"
+            )}
           </strong>
           <p>
             {fiveHour
               ? `5 小时窗口 · ${keyReset.estimated ? "约 " : ""}${formatResetClock(keyReset.resetsAt)}`
-              : "当前账户没有返回 5 小时窗口"}
+              : provider.windows.length
+                ? "当前账户没有返回 5 小时窗口"
+                : "当前接口提供余额或模型用量，不提供配额窗口"}
           </p>
           {provider.balance ? (
             <div className="balance-chip">
               <span>{provider.balance.label}</span>
-              <b>{formatNumber(provider.balance.value)}</b>
+              <b>{formatBalance(provider.balance.value, provider.balance.unit)}</b>
             </div>
           ) : null}
         </div>
       </div>
 
-      <div className="compact-windows" aria-label={`${provider.name}配额摘要`}>
+      {provider.windows.length ? (
+        <div className="compact-windows" aria-label={`${provider.name}配额摘要`}>
         {provider.windows.map((window) => {
           const reset = resolveReset(provider.id, window, history);
           return (
@@ -471,14 +553,15 @@ function ProviderCard({
             </div>
           );
         })}
-        {!fiveHour ? (
+        {!fiveHour && hasWeeklyWindow ? (
           <div className="compact-windows__missing">
             <span>5 小时</span>
             <strong>—</strong>
             <small>平台未提供</small>
           </div>
         ) : null}
-      </div>
+        </div>
+      ) : null}
 
       {isReady ? (
         <>
@@ -488,21 +571,28 @@ function ProviderCard({
               <p>{provider.message}</p>
             </div>
           ) : null}
-          <div className="window-list">
-            {provider.windows.map((window) => (
-              <WindowRow
-                key={window.id}
-                window={window}
-                reset={resolveReset(provider.id, window, history)}
-              />
-            ))}
-            {!fiveHour ? (
-              <div className="missing-window">
-                <span>5 小时</span>
-                <p>平台未提供此窗口，不做本地估算</p>
-              </div>
-            ) : null}
-          </div>
+          {provider.windows.length ? (
+            <div className="window-list">
+              {provider.windows.map((window) => (
+                <WindowRow
+                  key={window.id}
+                  window={window}
+                  reset={resolveReset(provider.id, window, history)}
+                />
+              ))}
+              {!fiveHour && hasWeeklyWindow ? (
+                <div className="missing-window">
+                  <span>5 小时</span>
+                  <p>平台未提供此窗口，不做本地估算</p>
+                </div>
+              ) : null}
+            </div>
+          ) : (
+            <div className="metric-only-state">
+              <span aria-hidden="true">↗</span>
+              <p>这是余额或模型统计接口，没有可换算的订阅配额窗口。</p>
+            </div>
+          )}
         </>
       ) : (
         <div className="provider-action">
@@ -571,6 +661,12 @@ export function UsageDashboard() {
   const [viewCode, setViewCode] = useState("");
   const [unlocking, setUnlocking] = useState(false);
   const [unlockError, setUnlockError] = useState<string | null>(null);
+  const [controlsOpen, setControlsOpen] = useState(false);
+  const [warningThreshold, setWarningThreshold] = useState(70);
+  const [hiddenProviders, setHiddenProviders] = useState<string[]>([]);
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "error">(
+    "idle",
+  );
 
   const load = useCallback(async (manual = false) => {
     if (manual) setRefreshing(true);
@@ -643,6 +739,23 @@ export function UsageDashboard() {
     };
     smallViewport.addEventListener("change", enterCompactMode);
     const initialTimer = window.setTimeout(() => {
+      try {
+        const preferences = JSON.parse(
+          window.localStorage.getItem(PREFERENCE_KEY) || "{}",
+        ) as Partial<DashboardPreferences>;
+        if (WARNING_LEVELS.includes(Number(preferences.warningThreshold))) {
+          setWarningThreshold(Number(preferences.warningThreshold));
+        }
+        if (Array.isArray(preferences.hiddenProviders)) {
+          setHiddenProviders(
+            preferences.hiddenProviders.filter(
+              (value): value is string => typeof value === "string",
+            ),
+          );
+        }
+      } catch {
+        // Invalid local preferences should not block live usage data.
+      }
       if (smallViewport.matches) setCompact(true);
       void load();
     }, 0);
@@ -659,10 +772,50 @@ export function UsageDashboard() {
     };
   }, [load]);
 
+  useEffect(() => {
+    function handleShortcut(event: KeyboardEvent) {
+      const target = event.target as HTMLElement | null;
+      const isTyping =
+        target?.tagName === "INPUT" ||
+        target?.tagName === "TEXTAREA" ||
+        target?.isContentEditable;
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "r") {
+        event.preventDefault();
+        void load(true);
+        return;
+      }
+      if (isTyping || event.metaKey || event.ctrlKey || event.altKey) return;
+      if (event.key.toLowerCase() === "c") {
+        setCompact((value) => !value);
+      }
+      if (event.key === ",") {
+        setControlsOpen((value) => !value);
+      }
+    }
+    window.addEventListener("keydown", handleShortcut);
+    return () => window.removeEventListener("keydown", handleShortcut);
+  }, [load]);
+
+  const visibleProviders = useMemo(
+    () =>
+      (data?.providers || []).filter(
+        (provider) => !hiddenProviders.includes(provider.id),
+      ),
+    [data, hiddenProviders],
+  );
+
+  const riskProviders = useMemo(
+    () =>
+      visibleProviders.filter(
+        (provider) => providerRisk(provider, warningThreshold) !== "normal",
+      ),
+    [visibleProviders, warningThreshold],
+  );
+
   const nextReset = useMemo(() => {
     const generatedAt = new Date(data?.generatedAt || 0).getTime();
     const resets =
-      data?.providers.flatMap((provider) =>
+      visibleProviders.flatMap((provider) =>
         provider.windows.map((window) => ({
           ...resolveReset(provider.id, window, history),
           window,
@@ -679,10 +832,57 @@ export function UsageDashboard() {
           new Date(a.resetsAt || 0).getTime() -
           new Date(b.resetsAt || 0).getTime(),
       )[0];
-  }, [data, history]);
+  }, [data?.generatedAt, history, visibleProviders]);
 
   function toggleCompact(value: boolean) {
     setCompact(value);
+  }
+
+  function savePreferences(next: DashboardPreferences) {
+    window.localStorage.setItem(PREFERENCE_KEY, JSON.stringify(next));
+  }
+
+  function chooseWarningThreshold(value: number) {
+    setWarningThreshold(value);
+    savePreferences({ warningThreshold: value, hiddenProviders });
+  }
+
+  function toggleProvider(providerId: string) {
+    const next = hiddenProviders.includes(providerId)
+      ? hiddenProviders.filter((id) => id !== providerId)
+      : [...hiddenProviders, providerId];
+    setHiddenProviders(next);
+    savePreferences({ warningThreshold, hiddenProviders: next });
+  }
+
+  async function copySummary() {
+    if (!data) return;
+    const lines = [
+      `AI Usage Dashboard · ${formatUpdated(data.generatedAt)}`,
+      ...visibleProviders.map((provider) => {
+        const primary = getPrimaryWindow(provider);
+        const reset = resolveReset(provider.id, primary, history);
+        const usage = primary
+          ? `${primary.label} ${formatPercent(primary.usedPercent)}`
+          : provider.balance
+            ? `${provider.balance.label} ${formatBalance(
+                provider.balance.value,
+                provider.balance.unit,
+              )}`
+            : providerStateLabel(provider);
+        return `${provider.name}: ${usage}${
+          reset.resetsAt ? ` · ${formatCountdown(reset.resetsAt)}重置` : ""
+        }`;
+      }),
+    ];
+    try {
+      await navigator.clipboard.writeText(lines.join("\n"));
+      setCopyState("copied");
+      window.setTimeout(() => setCopyState("idle"), 1800);
+    } catch {
+      setCopyState("error");
+      window.setTimeout(() => setCopyState("idle"), 2200);
+    }
   }
 
   return (
@@ -753,6 +953,30 @@ export function UsageDashboard() {
               </button>
             </div>
             <button
+              className="utility-button"
+              type="button"
+              onClick={() => void copySummary()}
+              disabled={!data}
+              title="复制当前脱敏摘要"
+            >
+              <span aria-hidden="true">⌘</span>
+              {copyState === "copied"
+                ? "已复制"
+                : copyState === "error"
+                  ? "复制失败"
+                  : "摘要"}
+            </button>
+            <button
+              className={`utility-button ${controlsOpen ? "is-active" : ""}`}
+              type="button"
+              onClick={() => setControlsOpen((value) => !value)}
+              aria-expanded={controlsOpen}
+              aria-controls="dashboard-controls"
+            >
+              <span aria-hidden="true">☷</span>
+              管理
+            </button>
+            <button
               className="refresh-button"
               type="button"
               onClick={() => void load(true)}
@@ -764,13 +988,76 @@ export function UsageDashboard() {
           </div>
         </header>
 
+        {controlsOpen ? (
+          <section
+            className="control-dock"
+            id="dashboard-controls"
+            aria-label="Dashboard 显示设置"
+          >
+            <div className="control-dock__group">
+              <span className="eyebrow">显示平台</span>
+              <div className="provider-toggles">
+                {(data?.providers || []).map((provider) => {
+                  const visible = !hiddenProviders.includes(provider.id);
+                  return (
+                    <button
+                      key={provider.id}
+                      className={visible ? "is-active" : ""}
+                      type="button"
+                      onClick={() => toggleProvider(provider.id)}
+                      aria-pressed={visible}
+                    >
+                      <i style={{ background: provider.accent }} />
+                      {provider.name}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            <div className="control-dock__group control-dock__threshold">
+              <span className="eyebrow">关注阈值</span>
+              <div>
+                {WARNING_LEVELS.map((value) => (
+                  <button
+                    key={value}
+                    className={warningThreshold === value ? "is-active" : ""}
+                    type="button"
+                    onClick={() => chooseWarningThreshold(value)}
+                  >
+                    {value}%
+                  </button>
+                ))}
+              </div>
+              <small>
+                {riskProviders.length
+                  ? `${riskProviders.length} 个平台达到关注阈值`
+                  : "当前没有平台达到关注阈值"}
+              </small>
+            </div>
+            <div className="control-dock__shortcuts">
+              <span className="eyebrow">快捷键</span>
+              <p>
+                <kbd>⌘ R</kbd> 刷新 <kbd>C</kbd> 切换密度{" "}
+                <kbd>,</kbd> 打开管理
+              </p>
+              <small>显示偏好只保存在当前浏览器。</small>
+            </div>
+          </section>
+        ) : null}
+
         <section className="overview-strip" aria-label="采集状态">
           <div>
             <span className="overview-strip__dot" />
             <p>
-              <b>{data?.collector.state === "online" ? "实时采集中" : "等待采集器"}</b>
+              <b>
+                {data?.collector.state === "online"
+                  ? riskProviders.length
+                    ? `${riskProviders.length} 个平台需关注`
+                    : "实时采集中"
+                  : "等待采集器"}
+              </b>
               <span>
-                {data?.providers.map((provider) => provider.name).join(" · ") ||
+                {visibleProviders.map((provider) => provider.name).join(" · ") ||
                   "等待数据"}
               </span>
             </p>
@@ -792,7 +1079,7 @@ export function UsageDashboard() {
           </div>
         </section>
 
-        <TokenOverview providers={data?.providers || []} />
+        <TokenOverview providers={visibleProviders} />
 
         {error ? (
           <div className="connection-alert" role="alert">
@@ -808,14 +1095,24 @@ export function UsageDashboard() {
         ) : null}
 
         <section className="provider-grid" aria-label="AI 平台用量">
-          {data?.providers.length ? (
-            data.providers.map((provider) => (
+          {visibleProviders.length ? (
+            visibleProviders.map((provider) => (
               <ProviderCard
                 key={provider.id}
                 provider={provider}
                 history={history}
+                warningThreshold={warningThreshold}
               />
             ))
+          ) : data?.providers.length ? (
+            <div className="provider-empty-state">
+              <span aria-hidden="true">◌</span>
+              <strong>所有平台都已隐藏</strong>
+              <p>在“管理”里重新打开至少一个平台。</p>
+              <button type="button" onClick={() => setControlsOpen(true)}>
+                打开管理
+              </button>
+            </div>
           ) : (
             <>
               <LoadingCard name="OpenAI Codex" shortName="CX" />
@@ -827,10 +1124,10 @@ export function UsageDashboard() {
         <footer className="dashboard-footer">
           <p>
             <span />
-            配额来自平台接口 · Token 支持配额换算与本机日志两种估算
+            官方 API、配额换算与本机日志分开呈现 · 不重复相加
           </p>
           <p>
-            Collector {data?.collector.version || "0.1.0"} · 自动刷新 60 秒
+            Collector {data?.collector.version || "0.6.0"} · 自动刷新 60 秒
           </p>
         </footer>
         </div>

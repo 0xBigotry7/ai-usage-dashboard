@@ -384,6 +384,164 @@ button {
   line-height: 0.7;
 }
 
+.utility-button {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  color: #aeb3ba;
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 11px;
+  font-weight: 650;
+  gap: 7px;
+  min-height: 44px;
+  padding: 9px 12px;
+  transition-duration: 160ms;
+  transition-property: background-color, border-color, color, scale;
+}
+
+.utility-button span {
+  color: var(--green);
+  font-size: 12px;
+}
+
+.utility-button:hover:not(:disabled),
+.utility-button.is-active {
+  background: rgba(123, 241, 168, 0.07);
+  border-color: rgba(123, 241, 168, 0.24);
+  color: var(--foreground);
+}
+
+.utility-button:active {
+  scale: 0.96;
+}
+
+.utility-button:disabled {
+  cursor: default;
+  opacity: 0.42;
+}
+
+.control-dock {
+  animation: dock-in 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  background:
+    linear-gradient(115deg, rgba(123, 241, 168, 0.04), transparent 42%),
+    rgba(16, 19, 23, 0.86);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 16px;
+  box-shadow: 0 18px 52px rgba(0, 0, 0, 0.18);
+  display: grid;
+  gap: 24px;
+  grid-template-columns: 1.45fr 0.7fr 0.8fr;
+  margin: -10px 0 18px;
+  padding: 17px 18px;
+}
+
+.control-dock__group {
+  min-width: 0;
+}
+
+.provider-toggles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 10px;
+}
+
+.provider-toggles button {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.018);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 9px;
+  color: #737982;
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 10px;
+  gap: 7px;
+  min-height: 30px;
+  padding: 6px 9px;
+}
+
+.provider-toggles button i {
+  background: #6f757d;
+  border-radius: 50%;
+  height: 6px;
+  opacity: 0.35;
+  width: 6px;
+}
+
+.provider-toggles button.is-active {
+  background: rgba(255, 255, 255, 0.055);
+  border-color: rgba(255, 255, 255, 0.13);
+  color: #d6d8dc;
+}
+
+.provider-toggles button.is-active i {
+  box-shadow: 0 0 10px currentColor;
+  opacity: 1;
+}
+
+.control-dock__threshold > div {
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 9px;
+  display: inline-flex;
+  margin-top: 10px;
+  padding: 3px;
+}
+
+.control-dock__threshold button {
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  color: #747982;
+  cursor: pointer;
+  font-size: 10px;
+  min-height: 27px;
+  padding: 5px 9px;
+}
+
+.control-dock__threshold button.is-active {
+  background: #2a2e35;
+  color: var(--warning);
+  box-shadow: 0 2px 9px rgba(0, 0, 0, 0.2);
+}
+
+.control-dock__threshold small,
+.control-dock__shortcuts small {
+  color: #656b73;
+  display: block;
+  font-size: 9px;
+  line-height: 1.45;
+  margin-top: 8px;
+}
+
+.control-dock__shortcuts {
+  border-left: 1px solid var(--line);
+  min-width: 0;
+  padding-left: 22px;
+}
+
+.control-dock__shortcuts p {
+  color: #9ca1a8;
+  font-size: 9px;
+  line-height: 2;
+  margin: 7px 0 0;
+}
+
+kbd {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-bottom-color: rgba(255, 255, 255, 0.18);
+  border-radius: 5px;
+  color: #d6d8dc;
+  font-family: inherit;
+  font-size: 8px;
+  margin: 0 2px;
+  padding: 3px 5px;
+  white-space: nowrap;
+}
+
 .overview-strip {
   align-items: center;
   background: rgba(15, 17, 21, 0.62);
@@ -505,6 +663,18 @@ button {
 
 .token-overview__log b {
   color: #d7dadd;
+  font-variant-numeric: tabular-nums;
+  margin-left: 4px;
+}
+
+.token-overview__official {
+  color: #73c9ff;
+  font-size: 10px;
+  margin: 5px 0 0;
+}
+
+.token-overview__official b {
+  color: #dcefff;
   font-variant-numeric: tabular-nums;
   margin-left: 4px;
 }
@@ -644,6 +814,25 @@ button {
   top: 0;
 }
 
+.provider-card--risk-warning {
+  border-color: rgba(244, 202, 113, 0.2);
+}
+
+.provider-card--risk-critical {
+  border-color: rgba(245, 143, 131, 0.25);
+  box-shadow:
+    0 24px 70px rgba(0, 0, 0, 0.22),
+    inset 0 0 52px rgba(245, 143, 131, 0.025);
+}
+
+.provider-card--risk-warning::before {
+  background: linear-gradient(90deg, var(--warning), transparent);
+}
+
+.provider-card--risk-critical::before {
+  background: linear-gradient(90deg, var(--danger), transparent);
+}
+
 .provider-card__header {
   align-items: center;
   display: flex;
@@ -715,6 +904,18 @@ button {
 
 .state-pill--auth_error,
 .state-pill--error {
+  color: var(--danger);
+}
+
+.state-pill--risk-warning {
+  background: rgba(244, 202, 113, 0.06);
+  border-color: rgba(244, 202, 113, 0.16);
+  color: var(--warning);
+}
+
+.state-pill--risk-critical {
+  background: rgba(245, 143, 131, 0.075);
+  border-color: rgba(245, 143, 131, 0.2);
   color: var(--danger);
 }
 
@@ -925,6 +1126,37 @@ button {
   margin: 2px 0 0;
 }
 
+.metric-only-state {
+  align-items: center;
+  background: rgba(115, 201, 255, 0.045);
+  border: 1px solid rgba(115, 201, 255, 0.11);
+  border-radius: 11px;
+  color: #7c8790;
+  display: flex;
+  gap: 10px;
+  min-height: 54px;
+  padding: 11px 12px;
+}
+
+.metric-only-state span {
+  align-items: center;
+  background: rgba(115, 201, 255, 0.09);
+  border-radius: 50%;
+  color: #73c9ff;
+  display: flex;
+  flex: none;
+  font-size: 10px;
+  height: 22px;
+  justify-content: center;
+  width: 22px;
+}
+
+.metric-only-state p {
+  font-size: 10px;
+  line-height: 1.5;
+  margin: 0;
+}
+
 .token-panel {
   border-top: 1px solid var(--line);
   margin-top: 18px;
@@ -1132,6 +1364,47 @@ button {
   animation-delay: 240ms;
 }
 
+.provider-empty-state {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px dashed rgba(255, 255, 255, 0.1);
+  border-radius: 18px;
+  color: var(--muted);
+  display: flex;
+  flex-direction: column;
+  grid-column: 1 / -1;
+  justify-content: center;
+  min-height: 260px;
+  padding: 30px;
+  text-align: center;
+}
+
+.provider-empty-state > span {
+  color: var(--green);
+  font-size: 25px;
+  margin-bottom: 13px;
+}
+
+.provider-empty-state strong {
+  color: var(--foreground);
+  font-size: 14px;
+}
+
+.provider-empty-state p {
+  font-size: 11px;
+  margin: 7px 0 15px;
+}
+
+.provider-empty-state button {
+  background: rgba(123, 241, 168, 0.08);
+  border: 1px solid rgba(123, 241, 168, 0.2);
+  border-radius: 9px;
+  color: var(--green);
+  cursor: pointer;
+  font-size: 10px;
+  padding: 8px 11px;
+}
+
 .dashboard-footer {
   color: #636871;
   display: flex;
@@ -1161,6 +1434,16 @@ button {
 
 .dashboard--compact .topbar {
   margin-bottom: 14px;
+}
+
+.dashboard--compact .control-dock {
+  gap: 14px;
+  grid-template-columns: 1.4fr 0.7fr;
+  margin-top: 0;
+}
+
+.dashboard--compact .control-dock__shortcuts {
+  display: none;
 }
 
 .dashboard--compact .brand h1 {
@@ -1325,6 +1608,17 @@ button {
   }
 }
 
+@keyframes dock-in {
+  from {
+    opacity: 0;
+    transform: translateY(-5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 @media (max-width: 1100px) {
   .dashboard__shell {
     padding: 24px 22px;
@@ -1349,6 +1643,17 @@ button {
 
   .provider-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .control-dock {
+    grid-template-columns: 1.4fr 0.7fr;
+  }
+
+  .control-dock__shortcuts {
+    border-left: 0;
+    border-top: 1px solid var(--line);
+    grid-column: 1 / -1;
+    padding: 13px 0 0;
   }
 }
 
@@ -1397,6 +1702,46 @@ button {
     min-height: 38px;
     min-width: 58px;
     padding: 8px 9px;
+  }
+
+  .utility-button {
+    font-size: 0;
+    justify-content: center;
+    min-height: 38px;
+    width: 38px;
+    padding: 8px 9px;
+  }
+
+  .utility-button span {
+    font-size: 12px;
+  }
+
+  .control-dock,
+  .dashboard--compact .control-dock {
+    gap: 15px;
+    grid-template-columns: 1fr;
+    margin: -6px 0 12px;
+    padding: 14px;
+  }
+
+  .control-dock__shortcuts {
+    display: none;
+  }
+
+  .provider-toggles {
+    flex-wrap: nowrap;
+    margin-right: -14px;
+    overflow-x: auto;
+    padding-right: 14px;
+    scrollbar-width: none;
+  }
+
+  .provider-toggles::-webkit-scrollbar {
+    display: none;
+  }
+
+  .provider-toggles button {
+    flex: none;
   }
 
   .brand {
