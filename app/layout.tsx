@@ -7,6 +7,25 @@ export const metadata: Metadata = {
     template: "%s · AI Usage Dashboard",
   },
   description: "可扩展的 AI 配额与 Token 用量 Dashboard。",
+  openGraph: {
+    title: "AI Usage Dashboard",
+    description: "本地优先的多平台 AI 配额、Token 与余额仪表盘。",
+    type: "website",
+    images: [
+      {
+        url: "/og.png",
+        width: 1731,
+        height: 909,
+        alt: "AI Usage Dashboard",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "AI Usage Dashboard",
+    description: "本地优先的多平台 AI 配额、Token 与余额仪表盘。",
+    images: ["/og.png"],
+  },
 };
 
 export const viewport: Viewport = {

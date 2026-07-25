@@ -10,6 +10,7 @@ flowchart LR
   B --> D["Loopback collector"]
   D --> E["SQLite history"]
   D --> F["Local dashboard"]
+  D --> K["/display always-on view"]
   D --> J["macOS menu bar"]
   D -. "sanitized HTTPS push" .-> G["Cloudflare Worker + D1"]
   H["Private or third-party collector"] -. "same normalized schema" .-> G
@@ -67,13 +68,35 @@ The UI compares these methods and never adds them together.
 
 ### Display clients
 
-The React dashboard is the full client. Provider toggles, warning thresholds,
-compact mode, and copied summaries are browser-local preferences and do not
-change collection.
+The responsive React dashboard is the full analysis client. Provider toggles,
+warning thresholds, and copied summaries are browser-local preferences and do
+not change collection. Built-in providers use local SVG artwork; custom
+providers fall back to their normalized `shortName`.
+
+`/display` is a separate React surface for 480×320 and 800×480 always-on
+screens. It prioritizes quota windows, reset times, balances, available model
+tokens, and freshness over dashboard controls. It shows three providers per
+page below 680 pixels and four at larger widths, rotating pages every eight
+seconds. Fullscreen and Screen Wake Lock are explicit user actions. The route
+uses the same authenticated API and normalized data as the dashboard; it
+introduces no additional collection or credential path.
 
 The native macOS menu bar companion is a second read-only client. It polls the
-loopback API once per minute, displays the highest percentage in the menu bar,
-and never queries providers or stores credentials itself.
+loopback API once per minute and never queries providers or stores credentials
+itself. Its label summarizes the primary quota for up to three providers. The
+popover renders every returned quota window, balances and freshness, plus the
+three largest available per-model token totals for each provider. A stale or
+unreachable collector adds a visible warning. Launch-at-login registration is
+handled locally with macOS `SMAppService`.
+
+### Freshness and honest absence
+
+A provider update older than the client freshness threshold is labeled stale;
+its last data remains visible so an outage is not confused with zero usage.
+Risk is derived from the highest available quota window, not only the weekly
+window. If there are not enough real history points to draw a trend, the
+dashboard says that history is still accumulating instead of fabricating a
+line. Missing quota capacities and model-level data remain “not provided.”
 
 ### Reset-time inference
 
@@ -162,6 +185,10 @@ up to four token estimates. Unknown properties are discarded.
 | Cloud to browser | Sanitized current rows and history after viewer authentication | Ingest secret and provider credentials |
 
 All usage responses use `Cache-Control: private, no-store`.
+
+Bundled provider SVGs are static presentation assets and are never interpreted
+as provider endpoints. The mapping from normalized provider ID to artwork is a
+fixed local allowlist.
 
 ## Public/private boundary
 

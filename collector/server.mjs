@@ -14,6 +14,10 @@ const POLL_INTERVAL_MS = Math.max(
   Number(process.env.USAGE_HUB_POLL_INTERVAL_MS || 60_000),
 );
 const STARTED_AT = new Date().toISOString();
+const ALLOWED_BROWSER_ORIGINS = new Set([
+  "http://localhost:3000",
+  "http://127.0.0.1:3000",
+]);
 const PRIVATE_ENV_KEYS = new Set([
   "DEEPSEEK_API_KEY",
   "GITHUB_COPILOT_MONTHLY_CREDIT_LIMIT",
@@ -170,12 +174,10 @@ async function refresh() {
 }
 
 function corsHeaders(origin) {
-  const allowed = new Set([
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-  ]);
   return {
-    "Access-Control-Allow-Origin": allowed.has(origin) ? origin : "http://localhost:3000",
+    "Access-Control-Allow-Origin": ALLOWED_BROWSER_ORIGINS.has(origin)
+      ? origin
+      : "http://localhost:3000",
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type",
     Vary: "Origin",
@@ -194,6 +196,10 @@ function sendJson(response, status, payload, origin = "") {
 const server = createServer(async (request, response) => {
   const origin = request.headers.origin || "";
   if (request.method === "OPTIONS") {
+    if (origin && !ALLOWED_BROWSER_ORIGINS.has(origin)) {
+      sendJson(response, 403, { error: "origin_not_allowed" }, origin);
+      return;
+    }
     response.writeHead(204, corsHeaders(origin));
     response.end();
     return;
@@ -223,6 +229,10 @@ const server = createServer(async (request, response) => {
       return;
     }
     if (request.method === "POST" && url.pathname === "/api/refresh") {
+      if (origin && !ALLOWED_BROWSER_ORIGINS.has(origin)) {
+        sendJson(response, 403, { error: "origin_not_allowed" }, origin);
+        return;
+      }
       sendJson(response, 200, await refresh(), origin);
       return;
     }

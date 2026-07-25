@@ -24,8 +24,11 @@
 - 采集器只监听 `127.0.0.1`，单个平台异常不会拖垮整个 Dashboard；
 - 展示真实配额窗口、重置时间、余额及可获得的官方 API 用量；
 - 可隐藏平台、设置 60% / 70% / 80% 关注阈值，并显示风险状态；
-- 支持键盘快捷键、一键复制脱敏摘要、小屏紧凑模式；
-- 原生 macOS 顶栏每 60 秒预览最高用量和各平台状态；
+- 使用随应用保存的真实平台图标，自定义 Provider 会回退到文字缩写；
+- 独立 `/display` 常亮屏，适配 480×320 和 800×480，支持自动分页、全屏和
+  Screen Wake Lock；
+- 原生 macOS 顶栏最多直接显示 3 个平台，展开后可看全部配额窗口、陈旧警告
+  和可获得的逐模型 Token；
 - 可选 Cloudflare 多设备汇总，云端只接受严格白名单快照。
 
 ## 当前内置接入
@@ -55,6 +58,9 @@ npm run local
 ```
 
 打开 <http://localhost:3000>。本地采集器只监听 `127.0.0.1:4317`。
+
+外接显示器或 HDMI 小屏可直接打开 <http://localhost:3000/display>。常亮和
+kiosk 配置见[外接屏指南](docs/external-display.md)。
 
 Codex 会读取已有 CLI 登录。Kimi 为可选接入：
 
@@ -103,8 +109,11 @@ USAGE_HUB_CODEX_LOG_ESTIMATE=off npm run local
 
 ## macOS 顶栏
 
-原生顶栏程序每 60 秒读取同一个本机采集器，在菜单栏显示当前最高用量，展开后
-可看各平台百分比、余额和重置时间。它不会直接访问平台，也不保存凭证。
+原生顶栏程序每 60 秒读取同一个本机采集器。菜单栏会直接显示最多 3 个平台的
+主要配额百分比；尾部的 `!` 表示采集器不可用或至少一个平台数据已经陈旧。展开
+后可以看到每个平台返回的全部配额窗口和重置时间、余额、数据新鲜度，以及最多
+3 个逐模型 Token。官方 API、本机日志和按配额换算的估算会继续使用不同标签，
+不会混成一个数字。顶栏程序不会直接访问平台，也不保存凭证。
 
 ```bash
 npm run build:menubar
@@ -112,6 +121,16 @@ open "dist/AI Usage Dashboard Menu Bar.app"
 ```
 
 开发模式可运行 `npm run menubar`，需要 macOS 14 或更新版本。
+使用“登录时启动”开关前，请先把构建出的应用移到 `/Applications`。
+
+## 外接常亮屏
+
+`/display` 是专门为外接屏设计的信息面，不是把完整 Dashboard 强行压缩。它在
+480×320 和 800×480 下无需滚动；窄屏每页显示 3 个平台，宽屏每页显示 4 个，
+平台更多时每 8 秒自动翻页。页面提供手动全屏与 Screen Wake Lock 开关；能否
+真正阻止休眠仍取决于浏览器和操作系统支持。
+
+完整接线和 kiosk 设置见[外接屏指南](docs/external-display.md)。
 
 ## 云端与自定义 Provider
 
@@ -119,13 +138,19 @@ open "dist/AI Usage Dashboard Menu Bar.app"
 
 公开仓库不内置任何特定远程机器、私有账号或平台专用的远端采集脚本。私有采集器可以保留在自己的机器上，只向本项目发送归一化快照。
 
+新增 Provider 应当优先补充一个可信、可验证且当前 schema 尚不能表达的能力，
+而不是单纯增加平台数量。适配规则见
+[Provider 开发指南](docs/provider-development.md)。
+
 ## 文档
 
 - [架构与数据流](docs/architecture.md)
+- [外接屏与 kiosk 配置](docs/external-display.md)
 - [配置与 Cloudflare 部署](docs/configuration.md)
 - [开发新的 Provider](docs/provider-development.md)
 - [安全模型与限制](docs/security.md)
 - [引用与实现来源](docs/attribution.md)
+- [第三方声明](THIRD_PARTY_NOTICES.md)
 - [Roadmap](docs/roadmap.md)
 - [参与贡献](CONTRIBUTING.md)
 
@@ -133,7 +158,13 @@ open "dist/AI Usage Dashboard Menu Bar.app"
 
 项目仍处于早期版本。平台没有返回的配额窗口会保持“未提供”；只有历史数据真实出现过百分比归零或下降时，才会推算下一次重置，并在页面明确标为“预计”。
 
-本项目与 OpenAI、Moonshot AI、Cloudflare、CodexBar、ccusage 均无隶属或合作关系。
+内置平台图标来自 MIT 许可的
+[`@lobehub/icons-static-svg` 1.94.0](https://github.com/lobehub/lobe-icons)，
+文件随应用保存在本地，不会访问图标 CDN。产品名称、Logo 和商标归各自权利人
+所有，详见[第三方声明](THIRD_PARTY_NOTICES.md)。
+
+本项目与 OpenAI、Moonshot AI、Cloudflare、CodexBar、Lobe Icons、ccusage
+均无隶属或合作关系。
 
 ## 许可证
 

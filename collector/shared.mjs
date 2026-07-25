@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 
-export const HUB_VERSION = "0.6.0";
+export const HUB_VERSION = "0.7.0";
 
 export function clampPercent(value) {
   if (!Number.isFinite(value)) return null;

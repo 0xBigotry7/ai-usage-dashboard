@@ -6,7 +6,7 @@ This project documents both direct dependencies and product inspiration.
 
 | Project | Relationship | Code copied? | License |
 | --- | --- | --- | --- |
-| [CodexBar](https://github.com/steipete/CodexBar) | Inspired the compact quota display, provider registry, warning-threshold direction, and local JSON service | No | MIT |
+| [CodexBar](https://github.com/steipete/CodexBar) | Interface and architecture inspiration for menu-bar information density, provider separation, warning thresholds, and refresh behavior | No | MIT |
 | [ccusage](https://github.com/ryoppippi/ccusage) | Demonstrates a broad, provider-neutral approach to local CLI usage analysis; a future optional adapter is on the roadmap | No | MIT |
 | [Kimi Code](https://github.com/MoonshotAI/kimi-code) | Public CLI structure and behavior informed Kimi compatibility | No copied implementation | MIT |
 | [vinext](https://github.com/cloudflare/vinext) | Runtime used to build the Next.js app for Cloudflare | Direct dependency | MIT |
@@ -14,7 +14,22 @@ This project documents both direct dependencies and product inspiration.
 
 The Codex JSONL estimator in this repository was implemented specifically for
 this project. It reads cumulative `token_count` events and does not vendor
-CodexBar or ccusage parsing code.
+CodexBar or ccusage parsing code. CodexBar was studied only as an interface and
+architecture reference; no CodexBar source code was copied.
+
+## Bundled provider artwork
+
+The SVG files in `public/brands/` were sourced from
+[`@lobehub/icons-static-svg` 1.94.0](https://www.npmjs.com/package/@lobehub/icons-static-svg),
+part of [Lobe Icons](https://github.com/lobehub/lobe-icons), under the MIT
+license. They are copied into this repository and application bundles so the
+clients do not make third-party icon requests.
+
+The current local asset set contains seven icons: Claude, Codex, OpenAI, Kimi,
+DeepSeek, OpenRouter, and GitHub Copilot. Lobe Icons supplies the artwork but
+does not grant rights to the represented product names or trademarks. Those
+remain the property of their respective owners. See
+[Third-party notices](../THIRD_PARTY_NOTICES.md).
 
 ## Direct dependencies
 
@@ -27,6 +42,7 @@ The lockfile is the authoritative version record.
 | [Drizzle ORM](https://github.com/drizzle-team/drizzle-orm) | D1 schema and queries | Apache-2.0 |
 | [Cloudflare Workers SDK](https://github.com/cloudflare/workers-sdk) | Runtime plugin and deployment tooling | MIT OR Apache-2.0 |
 | [Vite](https://github.com/vitejs/vite) | Build tool | MIT |
+| [Lobe Icons](https://github.com/lobehub/lobe-icons) | Source of bundled provider SVG artwork | MIT |
 
 ## Provider references
 
@@ -41,5 +57,6 @@ The lockfile is the authoritative version record.
 ## Trademark and affiliation
 
 AI Usage Dashboard is not affiliated with, endorsed by, or sponsored by OpenAI,
-Moonshot AI, Cloudflare, CodexBar, or ccusage. Product and model names belong to
-their respective owners.
+Moonshot AI, Cloudflare, CodexBar, Lobe Icons, or ccusage. Product names, model
+names, logos, and trademarks belong to their respective owners. Their inclusion
+identifies compatible services and does not imply endorsement.

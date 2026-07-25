@@ -5,8 +5,8 @@
 [![Node.js 22+](https://img.shields.io/badge/Node.js-22%2B-5FA04E.svg)](package.json)
 
 A local-first, extensible dashboard for AI quota windows, official API usage,
-balances, and token estimates. It includes a polished desktop/small-screen UI
-and a native macOS menu bar companion.
+balances, and token estimates. It includes a responsive web dashboard, a
+purpose-built always-on display, and a native macOS menu bar companion.
 
 [中文说明](README.zh-CN.md)
 
@@ -34,8 +34,11 @@ They are shown independently and are never added together.
 - real quota windows, reset times, balances, and exact API usage where available;
 - provider visibility controls, warning thresholds, risk states, keyboard
   shortcuts, and copyable sanitized summaries;
-- compact mode for narrow always-on displays;
-- native macOS menu bar preview, refreshed every 60 seconds;
+- real local provider artwork, with a text fallback for custom providers;
+- dedicated `/display` view for 480×320 and 800×480 always-on screens, with
+  automatic paging, fullscreen, and Screen Wake Lock controls;
+- native macOS menu bar summary for up to three providers, with every quota
+  window, freshness warnings, and available per-model tokens in its popover;
 - optional multi-host Cloudflare deployment with a strict snapshot allowlist.
 
 ## Included adapters
@@ -67,6 +70,10 @@ npm run local
 
 Open <http://localhost:3000>. The collector listens only on
 `127.0.0.1:4317`.
+
+For a second monitor or a small HDMI display, open
+<http://localhost:3000/display>. See the
+[external display guide](docs/external-display.md) for kiosk setup.
 
 Codex is detected from an existing CLI login. Kimi is optional:
 
@@ -121,8 +128,12 @@ USAGE_HUB_CODEX_LOG_ESTIMATE=off npm run local
 ## macOS menu bar
 
 The native companion reads the same loopback collector every 60 seconds. It
-shows the highest current usage in the menu bar and provider details in a
-compact popover. It does not read or store provider credentials.
+shows the primary quota percentage for up to three providers directly in the
+menu bar. A trailing `!` warns that the collector is unavailable or provider
+data is stale. Its popover shows every returned quota window and reset time,
+balances, freshness, and up to three available model token totals per provider.
+Official API totals, local-log observations, and quota-based estimates retain
+their distinct labels. It does not read or store provider credentials.
 
 ```bash
 npm run build:menubar
@@ -130,6 +141,18 @@ open "dist/AI Usage Dashboard Menu Bar.app"
 ```
 
 For development, use `npm run menubar`. macOS 14 or newer is required.
+Move the built app to `/Applications` before using its **Launch at Login**
+switch.
+
+## External always-on display
+
+`/display` is a separate information surface, not a compressed copy of the
+dashboard. It is designed to fit without scrolling at 480×320 and 800×480,
+shows three or four providers per page depending on width, and changes pages
+automatically every eight seconds. The view includes manual fullscreen and
+Screen Wake Lock controls; browser and operating-system support still applies.
+
+See [External display and kiosk setup](docs/external-display.md).
 
 ## Optional hosted dashboard
 
@@ -147,16 +170,19 @@ See [Configuration and deployment](docs/configuration.md).
 
 Local adapters are registered in `collector/providers/index.mjs`. A provider
 only needs to return the normalized provider object; the dashboard, history,
-cloud sanitizer, and compact display remain provider-agnostic.
+cloud sanitizer, menu bar, and external display remain provider-agnostic.
 
 Read [Provider development](docs/provider-development.md) before submitting an
-adapter. Machine-specific or private collectors should stay outside the public
-repository and send only the normalized snapshot.
+adapter. New providers should expose a trustworthy capability that the current
+schema cannot already represent; breadth alone is not a goal. Machine-specific
+or private collectors should stay outside the public repository and send only
+the normalized snapshot.
 
 ## Project map
 
 ```text
 app/                  Dashboard and hosted API routes
+app/display/          Always-on external display route
 collector/providers/  Local provider adapters and registry
 collector/            History and token estimators
 lib/                  Snapshot sanitization and viewer authentication
@@ -170,10 +196,12 @@ tests/                Normalization, estimation, security, and render tests
 ## Documentation
 
 - [Architecture and data flow](docs/architecture.md)
+- [External display and kiosk setup](docs/external-display.md)
 - [Configuration and Cloudflare deployment](docs/configuration.md)
 - [Provider development](docs/provider-development.md)
 - [Security model and limitations](docs/security.md)
 - [Attribution and provenance](docs/attribution.md)
+- [Third-party notices](THIRD_PARTY_NOTICES.md)
 - [Roadmap](docs/roadmap.md)
 - [Contributing](CONTRIBUTING.md)
 
@@ -183,8 +211,14 @@ This is an early open-source project. Missing quota windows remain explicit;
 reset times are estimated only after history shows a real percentage drop, and
 the UI labels that time as estimated.
 
+Bundled provider artwork comes from
+[`@lobehub/icons-static-svg` 1.94.0](https://github.com/lobehub/lobe-icons)
+under the MIT license. The artwork is stored locally; the dashboard does not
+contact an icon CDN. Product names, logos, and trademarks belong to their
+respective owners. See [Third-party notices](THIRD_PARTY_NOTICES.md).
+
 AI Usage Dashboard is not affiliated with OpenAI, Moonshot AI, Cloudflare,
-CodexBar, or ccusage. Product names and trademarks belong to their owners.
+CodexBar, Lobe Icons, or ccusage.
 
 ## License
 

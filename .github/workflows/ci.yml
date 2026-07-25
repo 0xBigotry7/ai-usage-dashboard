@@ -27,3 +27,18 @@ jobs:
 
       - run: npm ci
       - run: npm run check
+
+  macos-menu-bar:
+    runs-on: macos-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22.13.0"
+          cache: npm
+
+      - run: npm ci
+      - run: npm run build:menubar
