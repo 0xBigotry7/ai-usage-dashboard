@@ -48,7 +48,18 @@ test("build contains the dashboard, dedicated display, brands, and protected rou
   );
   assert.match(providerLogo, /BRAND_ASSETS/);
   assert.ok(
-    ["claude.svg", "codex.svg", "openai.svg", "kimi.svg", "deepseek.svg", "openrouter.svg", "githubcopilot.svg"]
+    [
+      "claude.svg",
+      "claude-color.svg",
+      "codex.svg",
+      "codex-color.svg",
+      "openai.svg",
+      "kimi.svg",
+      "kimi-color.svg",
+      "deepseek.svg",
+      "openrouter.svg",
+      "githubcopilot.svg",
+    ]
       .every((file) => brandAssets.includes(file)),
   );
   assert.ok(routes.every((route) => /is(Viewer|Ingest)Authorized/.test(route)));

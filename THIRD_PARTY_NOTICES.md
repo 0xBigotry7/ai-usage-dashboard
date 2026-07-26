@@ -11,10 +11,12 @@ Provider SVG artwork under `public/brands/` was sourced from
 which is published by the
 [Lobe Icons project](https://github.com/lobehub/lobe-icons).
 
-Seven SVGs are bundled locally: Claude, Codex, OpenAI, Kimi, DeepSeek,
-OpenRouter, and GitHub Copilot. They are used only to identify compatible
-services. These product names, logos, and trademarks belong to their respective
-owners. Inclusion does not imply affiliation, endorsement, or sponsorship.
+Ten SVGs are bundled locally: Claude, Codex, OpenAI, Kimi, DeepSeek,
+OpenRouter, and GitHub Copilot, including the upstream color variants for
+Claude, Codex, and Kimi used by the native macOS companion. They are used only
+to identify compatible services. These product names, logos, and trademarks
+belong to their respective owners. Inclusion does not imply affiliation,
+endorsement, or sponsorship.
 
 Lobe Icons is licensed under the following terms:
 

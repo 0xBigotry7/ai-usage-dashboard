@@ -5,7 +5,8 @@ import ServiceManagement
 import SwiftUI
 import UserNotifications
 
-private let staleInterval: TimeInterval = 5 * 60
+private let defaultStaleInterval: TimeInterval = 5 * 60
+private let claudeStaleInterval: TimeInterval = 45 * 60
 private let notificationThresholdOptions = [70, 80, 90]
 
 private enum PreferenceKey {
@@ -69,7 +70,10 @@ private struct UsageProvider: Decodable, Identifiable {
 
     var isStale: Bool {
         guard let updatedDate else { return true }
-        return Date().timeIntervalSince(updatedDate) > staleInterval
+        let threshold = id == "claude"
+            ? claudeStaleInterval
+            : defaultStaleInterval
+        return Date().timeIntervalSince(updatedDate) > threshold
     }
 
     var isDegraded: Bool {
@@ -176,20 +180,18 @@ private final class UsageStore: ObservableObject {
             .prefix(3)
             .map { provider in
                 let value: String
-                if let percent = provider.primaryWindow?.usedPercent {
-                    value = "\(Int(percent.rounded()))%"
+                if provider.state != "ready" {
+                    value = "异常"
+                } else if let percent = provider.primaryWindow?.usedPercent {
+                    let staleSuffix = provider.isStale ? " 旧" : ""
+                    value = "\(Int(percent.rounded()))%\(staleSuffix)"
                 } else {
-                    value = provider.state == "ready" ? "—" : "!"
+                    value = "—"
                 }
                 return "\(provider.shortName.uppercased()) \(value)"
             }
 
-        let title = summaries.isEmpty ? "AI —" : summaries.joined(separator: " · ")
-        return hasDegradedData ? "\(title) !" : title
-    }
-
-    var symbolName: String {
-        hasDegradedData ? "exclamationmark.triangle.fill" : "chart.bar.fill"
+        return summaries.isEmpty ? "AI —" : summaries.joined(separator: " · ")
     }
 
     init() {
@@ -470,13 +472,7 @@ private struct MenuBarPanel: View {
 
     private var header: some View {
         HStack(spacing: 11) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(Color.green.opacity(0.12))
-                Image(systemName: store.hasDegradedData ? "exclamationmark.triangle.fill" : "chart.bar.fill")
-                    .foregroundStyle(store.hasDegradedData ? .orange : .green)
-            }
-            .frame(width: 36, height: 36)
+            AppMark(needsAttention: store.hasDegradedData)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text("AI Usage Dashboard")
@@ -608,6 +604,79 @@ private struct MenuBarPanel: View {
         }
         .font(.system(size: 11))
         .padding(12)
+    }
+}
+
+private struct AppMark: View {
+    let needsAttention: Bool
+
+    var body: some View {
+        ZStack(alignment: .bottomTrailing) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color(red: 0.10, green: 0.13, blue: 0.14),
+                                Color(red: 0.04, green: 0.07, blue: 0.08),
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+
+                HStack(alignment: .bottom, spacing: 2.5) {
+                    meterTrack(height: 13, fillHeight: 6, color: .green)
+                    meterTrack(
+                        height: 21,
+                        fillHeight: 13,
+                        color: Color(red: 0.14, green: 0.91, blue: 0.67)
+                    )
+                    meterTrack(
+                        height: 16,
+                        fillHeight: 8,
+                        color: Color(red: 0.08, green: 0.74, blue: 0.82)
+                    )
+                }
+                .padding(.bottom, 7)
+            }
+            .frame(width: 36, height: 36)
+            .overlay {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .stroke(Color.white.opacity(0.10), lineWidth: 1)
+            }
+
+            Circle()
+                .fill(needsAttention ? Color.orange : Color.green)
+                .frame(width: 6, height: 6)
+                .overlay {
+                    Circle()
+                        .stroke(Color(red: 0.05, green: 0.07, blue: 0.08), lineWidth: 1.5)
+                }
+                .offset(x: -3, y: -3)
+        }
+        .frame(width: 36, height: 36)
+        .shadow(color: Color.black.opacity(0.18), radius: 4, y: 2)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(
+            needsAttention ? "AI 用量，有平台数据需要关注" : "AI 用量，数据正常"
+        )
+        .help(needsAttention ? "有平台数据需要关注" : "数据正常")
+    }
+
+    private func meterTrack(
+        height: CGFloat,
+        fillHeight: CGFloat,
+        color: Color
+    ) -> some View {
+        ZStack(alignment: .bottom) {
+            Capsule()
+                .fill(Color.white.opacity(0.09))
+            Capsule()
+                .fill(color)
+                .frame(height: fillHeight)
+        }
+        .frame(width: 5, height: height)
     }
 }
 
@@ -853,27 +922,65 @@ private struct ProviderLogo: View {
     let provider: UsageProvider
     var size: CGFloat = 32
 
+    private var tileColor: Color {
+        switch provider.id {
+        case "codex":
+            return .white
+        case "kimi":
+            return .black
+        case "claude":
+            return Color(red: 0.97, green: 0.94, blue: 0.90)
+        default:
+            return Color(hex: provider.accent) ?? .green
+        }
+    }
+
+    private var imagePadding: CGFloat {
+        provider.id == "codex" ? 0 : max(5, size * 0.19)
+    }
+
     var body: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .fill(Color.primary.opacity(0.055))
+            RoundedRectangle(
+                cornerRadius: max(7, size * 0.28),
+                style: .continuous
+            )
+            .fill(tileColor)
 
             if let image = BrandAssets.image(for: provider.id) {
-                Image(nsImage: image)
-                    .resizable()
-                    .renderingMode(.original)
-                    .scaledToFit()
-                    .padding(6)
+                if BrandAssets.hasOriginalColors(provider.id) {
+                    Image(nsImage: image)
+                        .resizable()
+                        .renderingMode(.original)
+                        .scaledToFit()
+                        .padding(imagePadding)
+                } else {
+                    Image(nsImage: image)
+                        .resizable()
+                        .renderingMode(.template)
+                        .foregroundStyle(.white)
+                        .scaledToFit()
+                        .padding(imagePadding)
+                }
             } else {
                 Text(provider.shortName)
                     .font(.system(size: 8, weight: .bold))
-                    .foregroundStyle(Color(hex: provider.accent) ?? .green)
+                    .foregroundStyle(.white)
             }
         }
         .frame(width: size, height: size)
+        .clipShape(
+            RoundedRectangle(
+                cornerRadius: max(7, size * 0.28),
+                style: .continuous
+            )
+        )
         .overlay {
-            RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+            RoundedRectangle(
+                cornerRadius: max(7, size * 0.28),
+                style: .continuous
+            )
+            .stroke(Color.primary.opacity(0.12), lineWidth: 1)
         }
         .help(provider.name)
     }
@@ -881,14 +988,23 @@ private struct ProviderLogo: View {
 
 private enum BrandAssets {
     private static let names = [
-        "codex": "codex",
-        "claude": "claude",
+        "codex": "codex-color",
+        "claude": "claude-color",
         "openai-api": "openai",
-        "kimi": "kimi",
+        "kimi": "kimi-color",
         "deepseek": "deepseek",
         "openrouter": "openrouter",
         "github-copilot": "githubcopilot",
     ]
+    private static let originalColorProviderIDs = Set([
+        "codex",
+        "claude",
+        "kimi",
+    ])
+
+    static func hasOriginalColors(_ providerID: String) -> Bool {
+        originalColorProviderIDs.contains(providerID)
+    }
 
     static func image(for providerID: String) -> NSImage? {
         guard let name = names[providerID] else { return nil }

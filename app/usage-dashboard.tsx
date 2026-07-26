@@ -82,6 +82,7 @@ type HistoryPoint = {
 
 const REFRESH_SECONDS = 60;
 const PROVIDER_STALE_AFTER_MS = 10 * 60 * 1000;
+const CLAUDE_STALE_AFTER_MS = 45 * 60 * 1000;
 const PREFERENCE_KEY = "ai-usage-dashboard.preferences.v1";
 const WARNING_LEVELS = [60, 70, 80];
 
@@ -183,9 +184,13 @@ function formatAge(value: string | null) {
 
 function isProviderStale(provider: Provider) {
   const updatedAt = new Date(provider.updatedAt).getTime();
+  const staleAfterMs =
+    provider.id === "claude"
+      ? CLAUDE_STALE_AFTER_MS
+      : PROVIDER_STALE_AFTER_MS;
   return (
     !Number.isFinite(updatedAt) ||
-    Date.now() - updatedAt > PROVIDER_STALE_AFTER_MS
+    Date.now() - updatedAt > staleAfterMs
   );
 }
 
