@@ -26,7 +26,11 @@ These goals depend on keeping real values outside source-controlled files.
 The Codex log estimator reads only lines containing `token_count` or
 `turn_context`. It extracts numeric cumulative token counters and a bounded
 model label. It does not include raw events in API responses, SQLite, D1, or
-logs.
+logs. Counting follows counter deltas per session file, deduplicates resumed
+or forked sessions that inherit a parent counter, and aligns the window with
+the subscription quota cycle embedded in the events (falling back to the past
+seven days). Totals include cached input reads, broken out separately as
+`cachedInputTokens`.
 
 This is a data-minimization property, not a filesystem sandbox: the local
 process still has the permissions of the user who starts it. Disable the scan
@@ -34,11 +38,14 @@ with `USAGE_HUB_CODEX_LOG_ESTIMATE=off` when that access is undesirable.
 
 ## Network boundaries
 
-- The local collector listens only on loopback.
+- The local collector listens only on loopback and rejects requests whose
+  `Host` header is not `127.0.0.1`, `localhost`, or `[::1]` on its port.
 - Provider overrides and cloud URLs must be credential-free HTTPS URLs.
 - The hosted ingest endpoint requires a bearer token and limits requests to
   64 KiB.
 - Hosted usage responses require a viewer session and disable caching.
+- Local SQLite and hosted D1 history are pruned automatically; only the most
+  recent 31 days of samples are retained.
 
 The viewer code is suitable for a personal dashboard, not a multi-tenant
 service. There is no account system, RBAC, audit log, or built-in brute-force
@@ -75,10 +82,14 @@ regional availability. This project does not bypass regional restrictions.
 
 ## Estimate limitations
 
-Quota conversion depends on a user-configured capacity. Local logs can be
-incomplete across devices, deleted sessions, counter resets, or nested agent
-work. Neither method is an invoice, subscription entitlement, compliance
-record, or safe spending control.
+Quota conversion appears only after the user configures a calibration capacity;
+there is no default, and the value is not an official limit. Local log
+estimates previously double-counted resumed or forked sessions and could
+undercount when an event was lost between samples; both are corrected by
+counter-delta accounting with inherited-counter detection. Local logs can
+still be incomplete across devices, deleted sessions, or nested agent work.
+Neither method is an invoice, subscription entitlement, compliance record, or
+safe spending control.
 
 ## Reporting a vulnerability
 

@@ -1,7 +1,9 @@
-import { asc, gte } from "drizzle-orm";
+import { desc, gte } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { remoteUsageHistory } from "../../../db/schema";
 import { isViewerAuthorized } from "../../../lib/remote-auth";
+
+const HISTORY_LIMIT = 10_000;
 
 export async function GET(request: Request) {
   if (!(await isViewerAuthorized(request))) {
@@ -20,7 +22,10 @@ export async function GET(request: Request) {
     Math.min(24 * 31, Number(url.searchParams.get("hours")) || 24),
   );
   const since = new Date(Date.now() - hours * 3_600_000).toISOString();
-  const points = await getDb()
+  // Take the newest rows first so a limit hit drops the oldest samples
+  // instead of freezing the trend days in the past, then restore
+  // chronological order for the response.
+  const rows = await getDb()
     .select({
       providerId: remoteUsageHistory.providerId,
       windowId: remoteUsageHistory.windowId,
@@ -29,11 +34,16 @@ export async function GET(request: Request) {
     })
     .from(remoteUsageHistory)
     .where(gte(remoteUsageHistory.capturedAt, since))
-    .orderBy(asc(remoteUsageHistory.capturedAt))
-    .limit(10_000);
+    .orderBy(desc(remoteUsageHistory.capturedAt))
+    .limit(HISTORY_LIMIT);
+  const points = rows.reverse();
 
   return Response.json(
-    { generatedAt: new Date().toISOString(), points },
+    {
+      generatedAt: new Date().toISOString(),
+      truncated: rows.length === HISTORY_LIMIT,
+      points,
+    },
     { headers: { "Cache-Control": "private, no-store" } },
   );
 }

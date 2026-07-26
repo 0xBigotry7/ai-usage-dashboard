@@ -4,6 +4,8 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Node.js 22+](https://img.shields.io/badge/Node.js-22%2B-5FA04E.svg)](package.json)
 
+<img src="public/og.png" alt="AI Usage Dashboard showing provider quota windows, balances, and token estimates" width="1731">
+
 A local-first, extensible dashboard for AI quota windows, official API usage,
 balances, and token estimates. It includes a responsive web dashboard, a
 purpose-built always-on display, and a native macOS menu bar companion.
@@ -45,8 +47,8 @@ They are shown independently and are never added together.
 
 | Adapter | Quota source | Token methods | Credential boundary |
 | --- | --- | --- | --- |
-| OpenAI Codex | Existing Codex CLI OAuth session | Quota conversion and local `token_count` events | Reads CLI-owned files; never writes credentials |
-| Kimi Code | API key or unexpired CLI session | Quota conversion | Optional key stored outside the repository with mode `0600` |
+| OpenAI Codex | Existing Codex CLI OAuth session | Optional quota conversion and local `token_count` events | Reads CLI-owned files; never writes credentials |
+| Kimi Code | API key or unexpired CLI session | Optional quota conversion | Optional key stored outside the repository with mode `0600` |
 | OpenAI API | Documented Organization Usage API | Exact seven-day model tokens and request counts | Admin key stays in the local collector |
 | OpenRouter | Documented current-key endpoint | Key spend, limit, and reset period | API key stays in the local collector |
 | DeepSeek API | Documented user-balance endpoint | Balance only; no invented quota window | API key stays in the local collector |
@@ -109,21 +111,32 @@ reports account balance. These values are not converted into subscription quota.
 estimated tokens = weekly used percentage × configured weekly capacity
 ```
 
-This is useful for comparing overall subscription pressure across devices, but
-the capacity is a calibration value rather than an official token limit.
+There is no built-in capacity. The converted token estimate is produced only
+after you set a calibration value such as
+`USAGE_HUB_CODEX_WEEKLY_TOKEN_CAPACITY`; without one, the dashboard shows the
+quota percentage alone. The capacity is your own calibration value, not an
+official token limit published by the provider.
 
 ### Local CLI logs
 
 The Codex adapter scans only `token_count` and model metadata events from local
-JSONL session files. It sums cumulative-counter deltas over the past seven days.
-Prompt and response content is neither exported nor uploaded. This method can
-miss usage from other devices or deleted logs.
+JSONL session files. It sums deduplicated cumulative-counter deltas over the
+current subscription window, aligned with the weekly quota cycle embedded in
+the log events (falling back to the past seven days when no window is found).
+Resumed or forked sessions are not double-counted. The result reports
+`totalTokens`, which includes cached input reads, with the cached-read portion
+broken out as `cachedInputTokens`. Prompt and response content is neither
+exported nor uploaded. This method covers this machine only and can miss usage
+from other devices or deleted logs.
 
 Disable it with:
 
 ```bash
 USAGE_HUB_CODEX_LOG_ESTIMATE=off npm run local
 ```
+
+These methods answer different questions. They are displayed side by side with
+distinct labels and are never summed or treated as comparable totals.
 
 ## macOS menu bar
 
@@ -237,6 +250,7 @@ tests/                Normalization, estimation, security, and render tests
 - [Attribution and provenance](docs/attribution.md)
 - [Third-party notices](THIRD_PARTY_NOTICES.md)
 - [Roadmap](docs/roadmap.md)
+- [Changelog](CHANGELOG.md)
 - [Contributing](CONTRIBUTING.md)
 
 ## Status

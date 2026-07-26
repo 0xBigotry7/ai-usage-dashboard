@@ -30,8 +30,11 @@ test("build contains the dashboard, dedicated display, brands, and protected rou
   assert.match(dashboard, /OpenAI Codex/);
   assert.match(dashboard, /Kimi Code/);
   assert.match(dashboard, /Token 用量 · 多口径/);
-  assert.match(dashboard, /周 Token · 多口径/);
+  assert.match(dashboard, /周 Token · 可信口径/);
   assert.match(dashboard, /官方 API、配额换算与 CLI 日志/);
+  // Quota-derived tokens must not appear as a headline number anymore.
+  assert.doesNotMatch(dashboard, /配额换算<\/small>/);
+  assert.match(dashboard, /历史数据已截断，仅显示最近部分/);
   assert.match(dashboard, /Dashboard 显示设置/);
   assert.match(dashboard, /关注阈值/);
   assert.match(dashboard, /复制当前脱敏摘要/);

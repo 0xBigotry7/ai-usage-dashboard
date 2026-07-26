@@ -32,7 +32,10 @@ Log in with the official Codex CLI. The adapter reads the existing
 `~/.codex/auth.json` and never modifies it.
 
 The local Token estimate scans `~/.codex/sessions/**/*.jsonl`, but parses only
-`token_count` and `turn_context` model metadata lines. Disable it with:
+`token_count` and `turn_context` model metadata lines. The counting window is
+aligned with the subscription quota cycle embedded in the log events, falling
+back to the past seven days; resumed or forked sessions are deduplicated.
+Disable it with:
 
 ```bash
 USAGE_HUB_CODEX_LOG_ESTIMATE=off npm run local
@@ -98,12 +101,14 @@ It targets macOS 14 or newer and contains no provider SDKs or credentials.
 
 ### Token-capacity calibration
 
-Quota conversion defaults to 10,000,000 tokens per week for each included
-adapter. These are display calibrations, not official limits.
+Quota conversion has no built-in capacity. Set a calibration value to enable a
+converted token estimate; when unset, the dashboard shows only the provider's
+quota percentage. These values are your own display calibrations, not official
+limits.
 
 ```text
-USAGE_HUB_CODEX_WEEKLY_TOKEN_CAPACITY=10000000
-USAGE_HUB_KIMI_WEEKLY_TOKEN_CAPACITY=10000000
+USAGE_HUB_CODEX_WEEKLY_TOKEN_CAPACITY=
+USAGE_HUB_KIMI_WEEKLY_TOKEN_CAPACITY=
 ```
 
 ## Optional Cloudflare deployment
@@ -192,8 +197,13 @@ and only credential-free normalized values are stored.
 | `USAGE_HUB_PUSH_TOKEN` | local collector | Hosted ingest bearer secret |
 | `USAGE_HUB_CLOUD_URL` | local collector | Optional hosted root URL for merging additional sanitized providers |
 | `USAGE_HUB_VIEW_CODE_FILE` | local collector | Optional viewer-code path |
-| `USAGE_HUB_CODEX_WEEKLY_TOKEN_CAPACITY` | local collector | Codex quota-conversion calibration |
-| `USAGE_HUB_KIMI_WEEKLY_TOKEN_CAPACITY` | local collector | Kimi quota-conversion calibration |
+| `USAGE_HUB_CODEX_WEEKLY_TOKEN_CAPACITY` | local collector | Optional Codex quota-conversion calibration; unset disables the converted estimate |
+| `USAGE_HUB_KIMI_WEEKLY_TOKEN_CAPACITY` | local collector | Optional Kimi quota-conversion calibration; unset disables the converted estimate |
+| `USAGE_HUB_HOST` | local collector | Optional bind address (default `127.0.0.1`) |
+| `USAGE_HUB_PORT` | local collector | Optional bind port (default `4317`) |
+| `USAGE_HUB_POLL_INTERVAL_MS` | local collector | Optional refresh interval in ms (default `60000`, minimum `30000`) |
+| `USAGE_HUB_DB` | local collector | Optional local history database path |
+| `USAGE_HUB_ENV_FILE` | local collector | Optional private env file path |
 | `INGEST_TOKEN` | hosted Worker | Secret accepted by `/api/ingest` |
 | `VIEW_TOKEN` | hosted Worker | Code used to create a viewer session |
 | `USAGE_HUB_D1_DATABASE_ID` | build | D1 database UUID |

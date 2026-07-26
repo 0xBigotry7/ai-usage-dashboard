@@ -1,8 +1,9 @@
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
+import pkg from "../package.json" with { type: "json" };
 
-export const HUB_VERSION = "0.8.0";
+export const HUB_VERSION = pkg.version;
 
 export function clampPercent(value) {
   if (!Number.isFinite(value)) return null;

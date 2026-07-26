@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, lt } from "drizzle-orm";
 import { getDb } from "../../../db";
 import {
   remoteSnapshots,
@@ -42,8 +42,12 @@ export async function POST(request: Request) {
   }
 
   const receivedAt = new Date().toISOString();
+  const receivedAtMs = Date.parse(receivedAt);
+  // A pusher's self-reported clock must not write history in the future.
+  const clampToReceivedAt = (value: string) =>
+    Date.parse(value) > receivedAtMs ? receivedAt : value;
   const captureBucket = Math.floor(
-    new Date(snapshot.generatedAt).getTime() / 300_000,
+    Date.parse(clampToReceivedAt(snapshot.generatedAt)) / 300_000,
   );
   const db = getDb();
 
@@ -104,12 +108,22 @@ export async function POST(request: Request) {
           providerId: provider.id,
           windowId: window.id,
           usedPercent: window.usedPercent,
-          capturedAt: provider.updatedAt || snapshot.generatedAt,
+          capturedAt: clampToReceivedAt(
+            provider.updatedAt || snapshot.generatedAt,
+          ),
           captureBucket,
         })
         .onConflictDoNothing();
     }
   }
+
+  // Bound history growth: drop rows older than 31 days on every ingest.
+  const historyCutoff = new Date(
+    Date.now() - 31 * 24 * 3_600_000,
+  ).toISOString();
+  await db
+    .delete(remoteUsageHistory)
+    .where(lt(remoteUsageHistory.capturedAt, historyCutoff));
 
   return Response.json(
     {

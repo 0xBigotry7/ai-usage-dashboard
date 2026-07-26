@@ -4,6 +4,7 @@ import { join } from "node:path";
 import {
   durationToWindow,
   fetchJson,
+  HUB_VERSION,
   numberOrNull,
   providerError,
   readJson,
@@ -22,6 +23,8 @@ const KIMI = {
 
 const DEFAULT_BASE_URL = "https://api.kimi.com";
 
+const warnedTimeUnits = new Set();
+
 function durationInSeconds(window) {
   const duration = Number(window?.duration);
   if (!Number.isFinite(duration) || duration <= 0) return null;
@@ -30,7 +33,13 @@ function durationInSeconds(window) {
   if (unit.includes("HOUR")) return duration * 3600;
   if (unit.includes("DAY")) return duration * 86_400;
   if (unit.includes("SECOND")) return duration;
-  return duration;
+  if (!warnedTimeUnits.has(unit)) {
+    warnedTimeUnits.add(unit);
+    console.warn(
+      `Kimi 用量接口返回了未识别的时间单位 "${window?.timeUnit}"，已跳过该窗口。`,
+    );
+  }
+  return null;
 }
 
 function normalizeDetail(detail, descriptor) {
@@ -159,7 +168,7 @@ export async function collectKimiUsage(env = process.env) {
       headers: {
         Authorization: `Bearer ${token}`,
         Accept: "application/json",
-        "User-Agent": "AI-Usage-Dashboard/0.6",
+        "User-Agent": `AI-Usage-Dashboard/${HUB_VERSION}`,
         "X-Msh-Platform": "kimi_code_cli",
         ...(deviceId ? { "X-Msh-Device-Id": deviceId } : {}),
       },

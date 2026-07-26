@@ -4,6 +4,7 @@ import {
   clampPercent,
   durationToWindow,
   fetchJson,
+  HUB_VERSION,
   providerError,
   readJson,
   toIsoTime,
@@ -103,7 +104,7 @@ export async function collectCodexUsage(env = process.env) {
       headers: {
         Authorization: `Bearer ${accessToken}`,
         Accept: "application/json",
-        "User-Agent": "AI-Usage-Dashboard/0.6",
+        "User-Agent": `AI-Usage-Dashboard/${HUB_VERSION}`,
         ...(accountId ? { "ChatGPT-Account-Id": accountId } : {}),
       },
     });

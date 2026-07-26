@@ -1,13 +1,16 @@
-const DEFAULT_WEEKLY_CAPACITY_TOKENS = 10_000_000;
-
-function capacity(value, fallback = DEFAULT_WEEKLY_CAPACITY_TOKENS) {
+function configuredCapacity(value) {
   const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed) : fallback;
+  return Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed) : null;
 }
 
 function estimateModel(window, { id, label, capacityTokens, countedInTotal }) {
   if (!window || !Number.isFinite(window.usedPercent)) return null;
-  const normalizedCapacity = capacity(capacityTokens);
+  const normalizedCapacity = configuredCapacity(capacityTokens);
+  // The platform's usedPercent is denominated in an internal billing unit,
+  // not tokens, so multiplying it by any built-in constant yields numbers
+  // that are orders of magnitude off. Only convert when the user has
+  // calibrated a capacity via USAGE_HUB_*_WEEKLY_TOKEN_CAPACITY.
+  if (normalizedCapacity === null) return null;
   const usedPercent = Math.max(0, Math.min(100, Number(window.usedPercent)));
   return {
     id,
@@ -62,10 +65,10 @@ export function estimateWeeklyQuotaTokens(
     windowId: primary.windowId,
     models,
     assumption:
-      "按周配额已用百分比乘以面板设定的订阅容量估算；独立模型额度不重复计入总量。",
+      "按周配额已用百分比乘以用户校准的订阅容量估算；该容量是用户校准值，不是平台官方 token 上限；独立模型额度不重复计入总量。",
   };
 }
 
 export function quotaCapacity(value, fallback) {
-  return capacity(value, fallback);
+  return configuredCapacity(value) ?? fallback;
 }

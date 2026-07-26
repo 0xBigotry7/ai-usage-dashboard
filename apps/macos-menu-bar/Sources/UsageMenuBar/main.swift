@@ -5,7 +5,7 @@ import ServiceManagement
 import SwiftUI
 import UserNotifications
 
-private let defaultStaleInterval: TimeInterval = 5 * 60
+private let defaultStaleInterval: TimeInterval = 10 * 60
 private let claudeStaleInterval: TimeInterval = 45 * 60
 private let notificationThresholdOptions = [70, 80, 90]
 
@@ -58,10 +58,12 @@ private struct UsageProvider: Decodable, Identifiable {
     let tokenUsage: TokenEstimate?
     let tokenEstimates: [TokenEstimate]?
 
+    // Mirrors the web dashboard's primary-window choice (weekly, otherwise
+    // the last window) while still requiring a usable percentage for the
+    // menu bar's percent display.
     var primaryWindow: UsageWindow? {
         windows.first(where: { $0.id == "weekly" && $0.usedPercent != nil })
-            ?? windows.first(where: { $0.id == "monthly" && $0.usedPercent != nil })
-            ?? windows.first(where: { $0.usedPercent != nil })
+            ?? windows.last(where: { $0.usedPercent != nil })
     }
 
     var updatedDate: Date? {
@@ -117,6 +119,7 @@ private struct ModelTokenUsage: Decodable {
     let id: String
     let label: String
     let estimatedTokens: Double?
+    let cachedInputTokens: Double?
     let requestCount: Double?
 }
 
@@ -126,6 +129,7 @@ private struct ModelTokenDisplay: Identifiable {
     let tokens: Double
     let basis: String
     let estimated: Bool
+    let cachedInputTokens: Double?
 }
 
 private struct WindowPace {
@@ -724,18 +728,28 @@ private struct ProviderRow: View {
         Color(hex: provider.accent) ?? .green
     }
 
+    // Only the preferred basis feeds the top-3 list so one model never
+    // appears twice under two different accounting bases. Priority matches
+    // the web dashboard: api_usage > session_logs > quota_percentage.
+    private var preferredTokenEstimate: TokenEstimate? {
+        let estimates = provider.effectiveTokenEstimates
+        return estimates.first(where: { $0.basis == "api_usage" })
+            ?? estimates.first(where: { $0.basis == "session_logs" })
+            ?? estimates.first(where: { $0.basis == "quota_percentage" })
+    }
+
     private var modelTokens: [ModelTokenDisplay] {
-        let entries = provider.effectiveTokenEstimates.enumerated().flatMap { usageIndex, usage in
-            (usage.models ?? []).compactMap { model -> ModelTokenDisplay? in
-                guard let tokens = model.estimatedTokens else { return nil }
-                return ModelTokenDisplay(
-                    id: "\(usageIndex)-\(usage.basis)-\(model.id)",
-                    label: model.label,
-                    tokens: tokens,
-                    basis: usage.basis,
-                    estimated: usage.estimated ?? (usage.basis != "api_usage")
-                )
-            }
+        guard let usage = preferredTokenEstimate else { return [] }
+        let entries = (usage.models ?? []).compactMap { model -> ModelTokenDisplay? in
+            guard let tokens = model.estimatedTokens else { return nil }
+            return ModelTokenDisplay(
+                id: "\(usage.basis)-\(model.id)",
+                label: model.label,
+                tokens: tokens,
+                basis: usage.basis,
+                estimated: usage.estimated ?? (usage.basis != "api_usage"),
+                cachedInputTokens: model.cachedInputTokens
+            )
         }
         return Array(entries.sorted { $0.tokens > $1.tokens }.prefix(3))
     }
@@ -893,6 +907,18 @@ private struct WindowRow: View {
 private struct ModelTokenRow: View {
     let model: ModelTokenDisplay
 
+    private var tokenText: String {
+        var text = "\(model.estimated ? "≈" : "")\(formatTokens(model.tokens))"
+        if model.basis == "session_logs",
+           let cached = model.cachedInputTokens,
+           model.tokens > 0,
+           cached > 0 {
+            let share = Int((cached / model.tokens * 100).rounded())
+            text += " · \(share)% 缓存"
+        }
+        return text
+    }
+
     var body: some View {
         HStack(spacing: 7) {
             Text(basisLabel(model.basis))
@@ -911,7 +937,7 @@ private struct ModelTokenRow: View {
 
             Spacer(minLength: 8)
 
-            Text("\(model.estimated ? "≈" : "")\(formatTokens(model.tokens))")
+            Text(tokenText)
                 .font(.system(size: 10, weight: .semibold, design: .rounded))
                 .monospacedDigit()
         }
@@ -1146,14 +1172,21 @@ private func formatTokens(_ value: Double) -> String {
     return formatCompactNumber(value, maximumFractionDigits: 0)
 }
 
+// NumberFormatter is expensive to create; all call sites are on the main
+// thread, so a single shared instance with a per-call fraction setting is
+// safe here.
+private let compactNumberFormatter: NumberFormatter = {
+    let formatter = NumberFormatter()
+    formatter.numberStyle = .decimal
+    return formatter
+}()
+
 private func formatCompactNumber(
     _ value: Double,
     maximumFractionDigits: Int = 1
 ) -> String {
-    let formatter = NumberFormatter()
-    formatter.numberStyle = .decimal
-    formatter.maximumFractionDigits = maximumFractionDigits
-    return formatter.string(from: NSNumber(value: value)) ?? "\(value)"
+    compactNumberFormatter.maximumFractionDigits = maximumFractionDigits
+    return compactNumberFormatter.string(from: NSNumber(value: value)) ?? "\(value)"
 }
 
 private func basisLabel(_ basis: String) -> String {

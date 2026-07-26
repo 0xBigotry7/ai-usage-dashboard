@@ -60,16 +60,38 @@ function enabledAdapters(env) {
 }
 
 export function providerCatalog(env = process.env) {
+  const enabled = new Set(enabledAdapters(env).map((adapter) => adapter.id));
   return providerAdapters.map((adapter) => ({
     id: adapter.id,
     name: adapter.name,
-    enabled: enabledAdapters(env).some((candidate) => candidate.id === adapter.id),
+    enabled: enabled.has(adapter.id),
     configured: adapter.defaultEnabled || Boolean(adapter.configured?.(env)),
   }));
 }
 
 export async function collectLocalProviders(env = process.env) {
-  return Promise.all(
-    enabledAdapters(env).map((adapter) => adapter.collect(env)),
+  const adapters = enabledAdapters(env);
+  const results = await Promise.allSettled(
+    adapters.map((adapter) => adapter.collect(env)),
   );
+  return results.map((result, index) => {
+    if (result.status === "fulfilled") return result.value;
+    const adapter = adapters[index];
+    console.warn(
+      `适配器 ${adapter.id} 意外抛出：${result.reason?.message || "未知错误"}`,
+    );
+    return {
+      id: adapter.id,
+      name: adapter.name,
+      shortName: adapter.name.slice(0, 2).toUpperCase(),
+      accent: "#7bf1a8",
+      state: "error",
+      plan: null,
+      source: adapter.name,
+      updatedAt: new Date().toISOString(),
+      windows: [],
+      balance: null,
+      message: result.reason?.message || "适配器暂时不可用",
+    };
+  });
 }

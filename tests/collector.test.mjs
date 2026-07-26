@@ -141,7 +141,7 @@ test("normalizes official OpenAI organization usage by model", () => {
   assert.equal(result.state, "ready");
   assert.equal(result.tokenUsage.basis, "api_usage");
   assert.equal(result.tokenUsage.estimated, false);
-  assert.equal(result.tokenUsage.totalTokens, 2_130);
+  assert.equal(result.tokenUsage.totalTokens, 2_100);
   assert.equal(result.tokenUsage.requestCount, 6);
   assert.deepEqual(
     result.tokenUsage.models.map((model) => [
@@ -150,7 +150,7 @@ test("normalizes official OpenAI organization usage by model", () => {
       model.requestCount,
     ]),
     [
-      ["gpt-example", 1_530, 4],
+      ["gpt-example", 1_500, 4],
       ["gpt-example-mini", 600, 2],
     ],
   );
@@ -368,13 +368,16 @@ test("remote snapshot whitelist strips credentials and local host details", () =
             basis: "session_logs",
             estimated: true,
             totalTokens: 345_000,
+            cachedInputTokens: 120_500,
             periodSeconds: 604_800,
+            periodStartAt: "2026-07-18T01:00:00.000Z",
             sessionCount: 8,
             models: [
               {
                 id: "codex-log-gpt-example",
                 label: "gpt-example",
                 estimatedTokens: 345_000,
+                cachedInputTokens: 120_500,
                 countedInTotal: true,
                 rawEvent: "must-not-leave-the-mac",
               },
@@ -387,6 +390,8 @@ test("remote snapshot whitelist strips credentials and local host details", () =
             estimated: false,
             totalTokens: 98_000,
             periodSeconds: 604_800,
+            periodStartAt: "2026-07-18T01:00:00.000Z",
+            cachedInputTokens: 30_000,
             requestCount: 17,
             models: [
               {
@@ -418,10 +423,70 @@ test("remote snapshot whitelist strips credentials and local host details", () =
     "session_logs",
   );
   assert.equal(snapshot.providers[0].tokenEstimates[0].sessionCount, 8);
+  assert.equal(
+    snapshot.providers[0].tokenEstimates[0].cachedInputTokens,
+    120_500,
+  );
+  assert.equal(
+    snapshot.providers[0].tokenEstimates[0].periodStartAt,
+    "2026-07-18T01:00:00.000Z",
+  );
+  assert.equal(
+    snapshot.providers[0].tokenEstimates[0].models[0].cachedInputTokens,
+    120_500,
+  );
   assert.equal(snapshot.providers[0].tokenEstimates[1].basis, "api_usage");
   assert.equal(snapshot.providers[0].tokenEstimates[1].estimated, false);
   assert.equal(snapshot.providers[0].tokenEstimates[1].requestCount, 17);
+  // session_logs-only fields stay out of the api_usage branch entirely.
+  assert.equal(
+    snapshot.providers[0].tokenEstimates[1].cachedInputTokens,
+    undefined,
+  );
+  assert.equal(
+    snapshot.providers[0].tokenEstimates[1].periodStartAt,
+    undefined,
+  );
   assert.equal(snapshot.collector.syncMode, "sanitized-push");
+});
+
+test("remote snapshot bounds session_logs cached-token and period fields", () => {
+  const snapshot = sanitizeRemoteSnapshot({
+    providers: [
+      {
+        id: "codex",
+        name: "OpenAI Codex",
+        state: "ready",
+        updatedAt: "2026-07-24T01:00:00.000Z",
+        windows: [],
+        tokenEstimates: [
+          {
+            basis: "session_logs",
+            estimated: true,
+            totalTokens: 100,
+            cachedInputTokens: "not-a-number",
+            periodSeconds: 604_800,
+            periodStartAt: "not-a-date",
+            sessionCount: 1,
+            models: [
+              {
+                id: "codex-log-gpt-example",
+                label: "gpt-example",
+                estimatedTokens: 100,
+                cachedInputTokens: -5,
+                countedInTotal: true,
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  });
+
+  const estimate = snapshot.providers[0].tokenEstimates[0];
+  assert.equal(estimate.cachedInputTokens, 0);
+  assert.equal(estimate.periodStartAt, null);
+  assert.equal(estimate.models[0].cachedInputTokens, 0);
 });
 
 test("merges independently pushed provider rows without exposing legacy payloads", () => {
