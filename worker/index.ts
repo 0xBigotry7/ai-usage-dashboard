@@ -29,6 +29,18 @@ interface ExecutionContext {
 // dangerouslyAllowSVG: true in next.config.js and uncomment below:
 // const imageConfig: ImageConfig = { dangerouslyAllowSVG: true };
 
+function withSecurityHeaders(response: Response): Response {
+  const secured = new Response(response.body, response);
+  secured.headers.set("X-Content-Type-Options", "nosniff");
+  secured.headers.set("X-Frame-Options", "DENY");
+  secured.headers.set("Referrer-Policy", "no-referrer");
+  secured.headers.set(
+    "Permissions-Policy",
+    "camera=(), microphone=(), geolocation=(), payment=()",
+  );
+  return secured;
+}
+
 const worker = {
   async fetch(
     request: Request,
@@ -39,7 +51,7 @@ const worker = {
 
     if (url.pathname === "/_vinext/image") {
       const allowedWidths = [...DEFAULT_DEVICE_SIZES, ...DEFAULT_IMAGE_SIZES];
-      return handleImageOptimization(
+      const optimized = await handleImageOptimization(
         request,
         {
           fetchAsset: (path) =>
@@ -53,18 +65,11 @@ const worker = {
         },
         allowedWidths,
       );
+      return withSecurityHeaders(optimized);
     }
 
     const response = await handler.fetch(request, env, ctx);
-    const secured = new Response(response.body, response);
-    secured.headers.set("X-Content-Type-Options", "nosniff");
-    secured.headers.set("X-Frame-Options", "DENY");
-    secured.headers.set("Referrer-Policy", "no-referrer");
-    secured.headers.set(
-      "Permissions-Policy",
-      "camera=(), microphone=(), geolocation=(), payment=()",
-    );
-    return secured;
+    return withSecurityHeaders(response);
   },
 };
 

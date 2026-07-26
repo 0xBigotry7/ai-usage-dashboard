@@ -1,5 +1,10 @@
 import { hostname } from "node:os";
-import { fetchJson, numberOrNull, providerError } from "../shared.mjs";
+import {
+  fetchJson,
+  HUB_VERSION,
+  numberOrNull,
+  providerError,
+} from "../shared.mjs";
 
 const DEEPSEEK = {
   id: "deepseek",
@@ -73,7 +78,7 @@ export async function collectDeepSeekBalance(env = process.env) {
       headers: {
         Authorization: `Bearer ${apiKey}`,
         Accept: "application/json",
-        "User-Agent": "AI-Usage-Dashboard/0.6",
+        "User-Agent": `AI-Usage-Dashboard/${HUB_VERSION}`,
       },
     });
     return normalizeDeepSeekBalance(payload, updatedAt);

@@ -1,5 +1,5 @@
 import { hostname } from "node:os";
-import { fetchJson, providerError } from "../shared.mjs";
+import { fetchJson, HUB_VERSION, providerError } from "../shared.mjs";
 
 const OPENAI_API = {
   id: "openai-api",
@@ -29,12 +29,11 @@ export function normalizeOpenAIAdminUsage(
 
   for (const bucket of payload?.data || []) {
     for (const result of bucket?.results || []) {
+      // Per the OpenAI Usage API docs, input_tokens already includes the
+      // audio/image subsets, so only input + output are summed here.
       const inputTokens = safeCount(result?.input_tokens);
       const outputTokens = safeCount(result?.output_tokens);
-      const inputAudioTokens = safeCount(result?.input_audio_tokens);
-      const outputAudioTokens = safeCount(result?.output_audio_tokens);
-      const tokens =
-        inputTokens + outputTokens + inputAudioTokens + outputAudioTokens;
+      const tokens = inputTokens + outputTokens;
       const requests = safeCount(result?.num_model_requests);
       const model = String(result?.model || "unattributed").slice(0, 80);
       const current = byModel.get(model) || { tokens: 0, requests: 0 };
@@ -119,7 +118,7 @@ export async function collectOpenAIAdminUsage(env = process.env) {
         Authorization: `Bearer ${adminKey}`,
         Accept: "application/json",
         "Content-Type": "application/json",
-        "User-Agent": "AI-Usage-Dashboard/0.6",
+        "User-Agent": `AI-Usage-Dashboard/${HUB_VERSION}`,
       },
     });
     return normalizeOpenAIAdminUsage(payload, updatedAt);

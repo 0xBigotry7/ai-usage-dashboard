@@ -2,13 +2,14 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { version as DASHBOARD_VERSION } from "../package.json";
 import { estimateNextResetAt } from "../lib/reset-estimate";
 import { ProviderLogo } from "./provider-logo";
 
 type WindowUsage = {
   id: string;
   label: string;
-  durationSeconds: number;
+  durationSeconds: number | null;
   usedPercent: number | null;
   used: number | null;
   limit: number | null;
@@ -23,6 +24,7 @@ type ModelTokenUsage = {
   usedPercent?: number;
   capacityTokens?: number;
   estimatedTokens: number;
+  cachedInputTokens?: number;
   requestCount?: number;
   countedInTotal: boolean;
 };
@@ -35,7 +37,9 @@ type TokenUsage = {
   usedPercent?: number;
   windowId?: string;
   periodSeconds?: number;
+  periodStartAt?: string | null;
   sessionCount?: number;
+  cachedInputTokens?: number;
   requestCount?: number;
   models: ModelTokenUsage[];
   assumption: string;
@@ -140,6 +144,7 @@ function formatBalance(value: number, unit: string) {
 function formatCountdown(resetsAt: string | null) {
   if (!resetsAt) return "未提供重置时间";
   const difference = new Date(resetsAt).getTime() - Date.now();
+  if (!Number.isFinite(difference)) return "重置时间未知";
   if (difference <= 0) return "等待刷新";
   const minutes = Math.max(1, Math.floor(difference / 60_000));
   const days = Math.floor(minutes / 1440);
@@ -157,6 +162,13 @@ function formatResetClock(resetsAt: string | null) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date(resetsAt));
+}
+
+function formatShortDate(value: string) {
+  return new Intl.DateTimeFormat("zh-CN", {
+    month: "numeric",
+    day: "numeric",
+  }).format(new Date(value));
 }
 
 function formatUpdated(value: string | null) {
@@ -248,30 +260,35 @@ function providerRisk(
 }
 
 function normalizeBars(points: HistoryPoint[], provider: Provider) {
+  const primary = getPrimaryWindow(provider);
+  if (!primary) return [];
   const dayAgo = Date.now() - 24 * 60 * 60 * 1000;
-  const weekly = points.filter(
+  const samples = points.filter(
     (point) =>
       point.providerId === provider.id &&
-      point.windowId === "weekly" &&
+      point.windowId === primary.id &&
       point.usedPercent !== null &&
       new Date(point.capturedAt).getTime() >= dayAgo,
   );
-  const compacted = weekly.length > 22
-    ? weekly.filter((_, index) => index % Math.ceil(weekly.length / 22) === 0)
-    : weekly;
+  const compacted = samples.length > 22
+    ? samples.filter((_, index) => index % Math.ceil(samples.length / 22) === 0)
+    : samples;
   return compacted.length > 1
     ? compacted.slice(-22).map((point) => point.usedPercent || 0)
     : [];
 }
 
-function getPreferredTokenUsage(provider: Provider) {
-  const estimates = getTokenEstimates(provider);
+function getPreferredTokenEstimate(estimates: TokenUsage[]) {
   return (
     estimates.find((estimate) => estimate.basis === "api_usage") ||
-    estimates.find((estimate) => estimate.basis === "session_logs") ||
     estimates.find((estimate) => estimate.basis === "quota_percentage") ||
+    estimates.find((estimate) => estimate.basis === "session_logs") ||
     null
   );
+}
+
+function getPreferredTokenUsage(provider: Provider) {
+  return getPreferredTokenEstimate(getTokenEstimates(provider));
 }
 
 function resolveReset(
@@ -282,6 +299,9 @@ function resolveReset(
   if (!window) return { resetsAt: null, estimated: false };
   if (window.resetsAt) {
     return { resetsAt: window.resetsAt, estimated: false };
+  }
+  if (window.durationSeconds === null) {
+    return { resetsAt: null, estimated: false };
   }
   const resetsAt = estimateNextResetAt({
     providerId,
@@ -346,6 +366,7 @@ function WindowRow({
 }
 
 function ProviderTokenPanel({ estimates }: { estimates: TokenUsage[] }) {
+  const preferred = getPreferredTokenEstimate(estimates);
   return (
     <section className="token-panel" aria-label="Token 用量估算">
       <div className="token-panel__heading">
@@ -357,23 +378,42 @@ function ProviderTokenPanel({ estimates }: { estimates: TokenUsage[] }) {
           <article className="token-method" key={usage.basis}>
             <header>
               <div>
-                <span>{tokenBasisLabel(usage.basis)}</span>
-                <strong title={exactTokens(usage.totalTokens)}>
-                  {formatTokens(usage.totalTokens)}
-                </strong>
+                <span>
+                  {tokenBasisLabel(usage.basis)}
+                  {preferred?.basis === usage.basis ? " · 总览采用" : ""}
+                </span>
+                {usage.basis === "quota_percentage" &&
+                !usage.capacityTokens ? (
+                  <strong>{formatPercent(usage.usedPercent ?? null)}</strong>
+                ) : (
+                  <strong title={exactTokens(usage.totalTokens)}>
+                    {usage.estimated ? "≈" : ""}
+                    {formatTokens(usage.totalTokens)}
+                  </strong>
+                )}
+                {usage.basis === "session_logs" &&
+                typeof usage.cachedInputTokens === "number" ? (
+                  <small className="token-method__cached">
+                    其中缓存读 ≈{formatTokens(usage.cachedInputTokens)}
+                  </small>
+                ) : null}
               </div>
               <small>
                 {usage.basis === "quota_percentage"
-                  ? `${formatPercent(usage.usedPercent ?? null)} × ${formatTokens(
-                      usage.capacityTokens ?? null,
-                    )}`
+                  ? usage.capacityTokens
+                    ? `${formatPercent(usage.usedPercent ?? null)} × ${formatTokens(
+                        usage.capacityTokens,
+                      )}`
+                    : "未配置容量校准，只显示配额百分比"
                   : usage.basis === "api_usage"
                     ? `过去 7 天 · ${formatNumber(
                         usage.requestCount ?? 0,
                       )} 次请求`
-                    : `过去 7 天 · ${formatNumber(
-                        usage.sessionCount ?? 0,
-                      )} 个会话`}
+                    : `仅本机 · 订阅周期${
+                        usage.periodStartAt
+                          ? `（${formatShortDate(usage.periodStartAt)} 起）`
+                          : ""
+                      } · ${formatNumber(usage.sessionCount ?? 0)} 个会话`}
               </small>
             </header>
             <div className="token-models">
@@ -397,6 +437,7 @@ function ProviderTokenPanel({ estimates }: { estimates: TokenUsage[] }) {
                     </small>
                   </div>
                   <strong title={exactTokens(model.estimatedTokens)}>
+                    {usage.estimated ? "≈" : ""}
                     {formatTokens(model.estimatedTokens)}
                   </strong>
                 </div>
@@ -409,82 +450,99 @@ function ProviderTokenPanel({ estimates }: { estimates: TokenUsage[] }) {
   );
 }
 
+function tokenBasisShortLabel(basis: TokenUsage["basis"]) {
+  if (basis === "api_usage") return "官方 API";
+  if (basis === "session_logs") return "本机日志";
+  return "配额百分比";
+}
+
+function tokenBasisScopeLabel(basis: TokenUsage["basis"]) {
+  if (basis === "api_usage") return "账户级";
+  if (basis === "session_logs") return "仅本机";
+  return "用户校准容量";
+}
+
 function TokenOverview({ providers }: { providers: Provider[] }) {
-  const providerEstimates = providers
+  const providerUsages = providers
     .map((provider) => ({
       provider,
-      quota: getTokenEstimates(provider).find(
-        (estimate) => estimate.basis === "quota_percentage",
-      ),
-      logs: getTokenEstimates(provider).find(
-        (estimate) => estimate.basis === "session_logs",
-      ),
-      official: getTokenEstimates(provider).find(
-        (estimate) => estimate.basis === "api_usage",
-      ),
+      usage: getPreferredTokenUsage(provider),
     }))
-    .filter(({ quota, logs, official }) => quota || logs || official);
-  const quotaTotal = providerEstimates.reduce(
-    (sum, { quota }) => sum + (quota?.totalTokens || 0),
+    .filter(
+      (entry): entry is { provider: Provider; usage: TokenUsage } =>
+        Boolean(entry.usage),
+    );
+  // Percentage-only rows are not tokens. A quota-derived estimate becomes
+  // summable only after the user has explicitly calibrated its capacity.
+  const tokenEntries = providerUsages.filter(
+    ({ usage }) =>
+      usage.basis !== "quota_percentage" ||
+      (typeof usage.capacityTokens === "number" &&
+        usage.capacityTokens > 0),
+  );
+  const preferredTotal = tokenEntries.reduce(
+    (sum, { usage }) => sum + usage.totalTokens,
     0,
   );
-  const logTotal = providerEstimates.reduce(
-    (sum, { logs }) => sum + (logs?.totalTokens || 0),
-    0,
+  const bases = [...new Set(tokenEntries.map(({ usage }) => usage.basis))];
+  const scopes = [
+    ...new Set(
+      tokenEntries.map(({ usage }) => tokenBasisScopeLabel(usage.basis)),
+    ),
+  ];
+  const isEstimated = tokenEntries.some(
+    ({ usage }) => usage.estimated || usage.basis !== "api_usage",
   );
-  const officialTotal = providerEstimates.reduce(
-    (sum, { official }) => sum + (official?.totalTokens || 0),
-    0,
-  );
-  const hasLogs = providerEstimates.some(({ logs }) => logs);
-  const hasOfficial = providerEstimates.some(({ official }) => official);
-  const hasQuota = providerEstimates.some(({ quota }) => quota);
+  const basisCaption = bases.length
+    ? `${bases.map(tokenBasisShortLabel).join(" + ")} · ${scopes.join(" / ")}`
+    : null;
   return (
-    <section className="token-overview" aria-label="周 Token 多口径总览">
+    <section className="token-overview" aria-label="周 Token 总览">
       <div className="token-overview__total">
-        <span className="eyebrow">本周 Token · 多口径</span>
+        <span className="eyebrow">本周 Token · 跨平台汇总</span>
         <div>
-          <strong title={hasQuota ? exactTokens(quotaTotal) : undefined}>
-            {hasQuota ? formatTokens(quotaTotal) : "未提供"}
+          <strong
+            title={tokenEntries.length ? exactTokens(preferredTotal) : undefined}
+          >
+            {tokenEntries.length
+              ? `${isEstimated ? "≈" : ""}${formatTokens(preferredTotal)}`
+              : "未提供"}
           </strong>
-          <small>配额换算</small>
+          <small>
+            {isEstimated ? "逐平台首选口径估算" : "官方口径合计"}
+          </small>
         </div>
-        {hasLogs ? (
-          <p className="token-overview__log">
-            本机日志 <b title={exactTokens(logTotal)}>{formatTokens(logTotal)}</b>
-          </p>
-        ) : null}
-        {hasOfficial ? (
-          <p className="token-overview__official">
-            官方 API{" "}
-            <b title={exactTokens(officialTotal)}>
-              {formatTokens(officialTotal)}
-            </b>
-          </p>
+        {basisCaption ? (
+          <p className="token-overview__log">{basisCaption}</p>
         ) : null}
       </div>
       <div className="token-overview__providers">
-        {providerEstimates.length ? (
-          providerEstimates.map(({ provider, quota, logs, official }) => (
+        {providerUsages.length ? (
+          providerUsages.map(({ provider, usage }) => (
             <div
               key={provider.id}
               style={{ "--provider-accent": provider.accent } as React.CSSProperties}
             >
               <span>{provider.name}</span>
-              <strong title={quota ? exactTokens(quota.totalTokens) : undefined}>
-                {quota
-                  ? formatTokens(quota.totalTokens)
-                  : official
-                    ? formatTokens(official.totalTokens)
-                    : "—"}
-              </strong>
-              <small>
-                {official
-                  ? `官方 API ${formatTokens(official.totalTokens)}`
-                  : logs
-                  ? `本机日志 ${formatTokens(logs.totalTokens)}`
-                  : "暂无本机日志估算"}
-              </small>
+              {usage.basis === "quota_percentage" &&
+              !(typeof usage.capacityTokens === "number" &&
+                usage.capacityTokens > 0) ? (
+                <>
+                  <strong>{formatPercent(usage.usedPercent ?? null)}</strong>
+                  <small>配额百分比 · 未换算 token</small>
+                </>
+              ) : (
+                <>
+                  <strong title={exactTokens(usage.totalTokens)}>
+                    {usage.estimated ? "≈" : ""}
+                    {formatTokens(usage.totalTokens)}
+                  </strong>
+                  <small>
+                    {tokenBasisShortLabel(usage.basis)} ·{" "}
+                    {tokenBasisScopeLabel(usage.basis)}
+                  </small>
+                </>
+              )}
             </div>
           ))
         ) : (
@@ -492,7 +550,8 @@ function TokenOverview({ providers }: { providers: Provider[] }) {
         )}
       </div>
       <p className="token-overview__note">
-        官方 API、配额换算与 CLI 日志覆盖范围不同。它们独立展示，不相加。
+        总览为每个平台只取一个首选口径（官方 API、已校准配额、本机日志依次
+        选择）再求和；混合范围会标为估算，不等同于平台账单。
       </p>
     </section>
   );
@@ -740,6 +799,7 @@ function DisplayProviderTile({
                   {model.usedPercent !== undefined
                     ? `${formatPercent(model.usedPercent)} · `
                     : ""}
+                  {usage.estimated ? "≈" : ""}
                   {formatTokens(model.estimatedTokens)}
                 </strong>
               </div>
@@ -995,6 +1055,7 @@ export function UsageDashboard({
 } = {}) {
   const [data, setData] = useState<UsagePayload | null>(null);
   const [history, setHistory] = useState<HistoryPoint[]>([]);
+  const [historyTruncated, setHistoryTruncated] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [secondsLeft, setSecondsLeft] = useState(REFRESH_SECONDS);
@@ -1033,10 +1094,14 @@ export function UsageDashboard({
       }
       const [usagePayload, historyPayload] = await Promise.all([
         usageResponse.json() as Promise<UsagePayload>,
-        historyResponse.json() as Promise<{ points?: HistoryPoint[] }>,
+        historyResponse.json() as Promise<{
+          points?: HistoryPoint[];
+          truncated?: boolean;
+        }>,
       ]);
       setData(usagePayload);
       setHistory(historyPayload.points || []);
+      setHistoryTruncated(historyPayload.truncated === true);
       setLocked(false);
       setError(null);
       setSecondsLeft(REFRESH_SECONDS);
@@ -1496,13 +1561,19 @@ export function UsageDashboard({
           )}
         </section>
 
+        {historyTruncated ? (
+          <p className="history-truncated" role="note">
+            历史数据已截断，仅显示最近部分
+          </p>
+        ) : null}
+
         <footer className="dashboard-footer">
           <p>
             <span />
-            官方 API、配额换算与本机日志分开呈现 · 不重复相加
+            各口径独立展示 · 跨平台总数逐平台只取一个首选口径
           </p>
           <p>
-            Collector {data?.collector.version || "0.8.0"} · 自动刷新 60 秒
+            Collector {data?.collector.version || DASHBOARD_VERSION} · 自动刷新 60 秒
           </p>
         </footer>
         </>

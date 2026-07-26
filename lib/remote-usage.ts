@@ -1,3 +1,5 @@
+import pkg from "../package.json" with { type: "json" };
+
 const PROVIDER_ORDER = [
   "codex",
   "kimi",
@@ -66,6 +68,9 @@ function sanitizeTokenModel(value: unknown, basis: string) {
     ...(basis === "api_usage"
       ? { requestCount: boundedToken(input.requestCount) }
       : {}),
+    ...(basis === "session_logs"
+      ? { cachedInputTokens: boundedToken(input.cachedInputTokens) }
+      : {}),
     countedInTotal: input.countedInTotal === true,
   };
 }
@@ -119,7 +124,9 @@ function sanitizeTokenUsage(value: unknown) {
     basis,
     estimated: true,
     totalTokens: boundedToken(input.totalTokens),
+    cachedInputTokens: boundedToken(input.cachedInputTokens),
     periodSeconds: boundedNumber(input.periodSeconds, 60, 31_536_000) || 604_800,
+    periodStartAt: safeIso(input.periodStartAt),
     sessionCount: boundedNumber(input.sessionCount, 0, 1_000_000) || 0,
     models,
     assumption:
@@ -183,7 +190,11 @@ function sanitizeProvider(value: unknown) {
     id,
     name: boundedString(input.name, 60) || id,
     shortName: boundedString(input.shortName, 8) || id.slice(0, 2).toUpperCase(),
-    accent: boundedString(input.accent, 20) || "#7bf1a8",
+    accent:
+      typeof input.accent === "string" &&
+      /^#[0-9a-fA-F]{6}$/.test(input.accent)
+        ? input.accent
+        : "#7bf1a8",
     state,
     plan: boundedString(input.plan, 80),
     source: boundedString(input.source, 80) || "远端采集器",
@@ -280,7 +291,7 @@ export function mergeRemoteProviderRows(rows: RemoteSnapshotRow[]) {
     return {
       generatedAt: generatedAt || new Date().toISOString(),
       collector: {
-        version: "0.8.0",
+        version: pkg.version,
         state: providers.some((provider) => provider.state === "ready")
           ? "online"
           : "attention",

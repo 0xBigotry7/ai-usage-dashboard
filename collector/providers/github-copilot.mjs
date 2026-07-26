@@ -1,6 +1,7 @@
 import { hostname } from "node:os";
 import {
   fetchJson,
+  HUB_VERSION,
   numberOrNull,
   providerError,
   usagePercent,
@@ -120,8 +121,8 @@ export async function collectGitHubCopilotUsage(env = process.env) {
       headers: {
         Authorization: `Bearer ${token}`,
         Accept: "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2026-03-10",
-        "User-Agent": "AI-Usage-Dashboard/0.6",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "User-Agent": `AI-Usage-Dashboard/${HUB_VERSION}`,
       },
     });
     return normalizeGitHubCopilotUsage(payload, {

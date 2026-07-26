@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, lt } from "drizzle-orm";
 import { getDb } from "../../../db";
 import {
   remoteSnapshots,
@@ -42,13 +42,21 @@ export async function POST(request: Request) {
   }
 
   const receivedAt = new Date().toISOString();
-  const captureBucket = Math.floor(
-    new Date(snapshot.generatedAt).getTime() / 300_000,
-  );
+  const receivedAtMs = Date.parse(receivedAt);
+  // A pusher's self-reported clock must not write history in the future.
+  const clampToReceivedAt = (value: string) =>
+    Date.parse(value) > receivedAtMs ? receivedAt : value;
+  const snapshotGeneratedAt = clampToReceivedAt(snapshot.generatedAt);
   const db = getDb();
 
   for (const provider of snapshot.providers) {
-    let storedProvider = provider;
+    const providerCapturedAt = clampToReceivedAt(
+      provider.updatedAt || snapshotGeneratedAt,
+    );
+    let storedProvider = {
+      ...provider,
+      updatedAt: providerCapturedAt,
+    };
     const isTransientRateLimit =
       provider.state === "error" &&
       /(?:HTTP\s*)?429|rate.?limit|限流/i.test(provider.message || "");
@@ -104,12 +112,22 @@ export async function POST(request: Request) {
           providerId: provider.id,
           windowId: window.id,
           usedPercent: window.usedPercent,
-          capturedAt: provider.updatedAt || snapshot.generatedAt,
-          captureBucket,
+          capturedAt: providerCapturedAt,
+          captureBucket: Math.floor(
+            Date.parse(providerCapturedAt) / 300_000,
+          ),
         })
         .onConflictDoNothing();
     }
   }
+
+  // Bound history growth: drop rows older than 31 days on every ingest.
+  const historyCutoff = new Date(
+    Date.now() - 31 * 24 * 3_600_000,
+  ).toISOString();
+  await db
+    .delete(remoteUsageHistory)
+    .where(lt(remoteUsageHistory.capturedAt, historyCutoff));
 
   return Response.json(
     {

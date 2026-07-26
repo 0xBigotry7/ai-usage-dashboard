@@ -1,6 +1,7 @@
 import { hostname } from "node:os";
 import {
   fetchJson,
+  HUB_VERSION,
   numberOrNull,
   providerError,
   usagePercent,
@@ -134,7 +135,7 @@ export async function collectOpenRouterUsage(env = process.env) {
       headers: {
         Authorization: `Bearer ${apiKey}`,
         Accept: "application/json",
-        "User-Agent": "AI-Usage-Dashboard/0.6",
+        "User-Agent": `AI-Usage-Dashboard/${HUB_VERSION}`,
       },
     });
     return normalizeOpenRouterUsage(payload, updatedAt);

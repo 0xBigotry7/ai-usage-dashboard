@@ -37,10 +37,12 @@ New adapters do not require UI changes when they follow the normalized schema.
 
 `collector/server.mjs`:
 
-- binds to `127.0.0.1:4317`;
+- binds to `127.0.0.1:4317` and rejects requests whose `Host` header is not
+  loopback (`127.0.0.1`, `localhost`, or `[::1]`);
 - refreshes adapters concurrently;
 - exposes current usage, seven-day history, and manual refresh;
-- stores normalized history in `~/.usage-hub/usage.db`;
+- stores normalized history in `~/.usage-hub/usage.db`, pruning rows older
+  than 31 days;
 - optionally pushes a sanitized snapshot to an HTTPS endpoint;
 - optionally merges additional sanitized providers from the hosted dashboard.
 
@@ -57,14 +59,23 @@ count.
 
 `quota_percentage` multiplies the provider's weekly percentage by a configured
 capacity. It can represent account-wide usage but relies on a calibration
-assumption.
+assumption. There is no built-in capacity: the estimate is only produced when
+the user sets `USAGE_HUB_*_WEEKLY_TOKEN_CAPACITY`, otherwise the quota
+percentage is shown alone.
 
 `session_logs` scans local Codex JSONL files for `token_count` and model metadata
-events. It sums cumulative-counter deltas during the past seven days. It does
-not inspect or export message bodies. It can miss other devices and deleted
-logs.
+events. It sums cumulative-counter deltas over the current subscription window,
+aligned with the weekly quota cycle embedded in the log events and falling back
+to the past seven days when no window is found. Resumed or forked sessions that
+inherit a parent counter are deduplicated. The reported `totalTokens` includes
+cached input reads, with the cached-read portion broken out as
+`cachedInputTokens`. It does not inspect or export message bodies. It covers
+this machine only and can miss other devices and deleted logs.
 
-The UI compares these methods and never adds them together.
+The provider view compares these methods without merging them. The
+cross-provider headline selects at most one preferred method per provider
+(`api_usage`, then a calibrated `quota_percentage`, then `session_logs`) and
+labels any inferred or mixed-scope sum as an estimate rather than a bill.
 
 ### Display clients
 
@@ -116,7 +127,10 @@ The Cloudflare deployment uses:
 - D1 for current provider rows and bounded history.
 
 The ingest route stores providers independently, so collectors can update at
-different times.
+different times. Both ingest and local history keep only the most recent 31
+days of samples; older rows are pruned automatically. The `/api/history`
+response includes a `truncated` flag that is true when the 10,000-row response
+limit cut off older points within the requested range.
 
 ## Normalized schema
 

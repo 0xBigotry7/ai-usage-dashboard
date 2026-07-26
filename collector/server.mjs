@@ -148,7 +148,11 @@ async function refresh() {
     );
     const providers = [...localProviders, ...remoteProviders];
     const generatedAt = new Date();
-    history.save(providers, generatedAt);
+    try {
+      history.save(providers, generatedAt);
+    } catch (error) {
+      console.warn(`历史数据写入失败：${error?.message || "未知错误"}`);
+    }
     latest = {
       generatedAt: generatedAt.toISOString(),
       collector: {
@@ -193,8 +197,22 @@ function sendJson(response, status, payload, origin = "") {
   response.end(JSON.stringify(payload));
 }
 
+function allowedHostHeader(host) {
+  const port = server.address()?.port || PORT;
+  const normalized = String(host || "").toLowerCase();
+  return (
+    normalized === `127.0.0.1:${port}` ||
+    normalized === `localhost:${port}` ||
+    normalized === `[::1]:${port}`
+  );
+}
+
 const server = createServer(async (request, response) => {
   const origin = request.headers.origin || "";
+  if (!allowedHostHeader(request.headers.host)) {
+    sendJson(response, 403, { error: "host_not_allowed" }, origin);
+    return;
+  }
   if (request.method === "OPTIONS") {
     if (origin && !ALLOWED_BROWSER_ORIGINS.has(origin)) {
       sendJson(response, 403, { error: "origin_not_allowed" }, origin);
@@ -217,7 +235,11 @@ const server = createServer(async (request, response) => {
       return;
     }
     if (request.method === "GET" && url.pathname === "/api/usage") {
-      if (!latest.generatedAt) await refresh();
+      if (!latest.generatedAt) {
+        void refresh().catch((error) => {
+          console.warn(`首次刷新失败：${error?.message || "未知错误"}`);
+        });
+      }
       sendJson(response, 200, latest, origin);
       return;
     }
@@ -245,12 +267,20 @@ const server = createServer(async (request, response) => {
   }
 });
 
-await refresh();
 server.listen(PORT, HOST, () => {
   console.log(`AI Usage Dashboard collector: http://${HOST}:${PORT}`);
 });
+void refresh().catch((error) => {
+  console.warn(
+    `首次刷新失败，将在下个周期重试：${error?.message || "未知错误"}`,
+  );
+});
 
-const interval = setInterval(refresh, POLL_INTERVAL_MS);
+const interval = setInterval(() => {
+  void refresh().catch((error) => {
+    console.warn(`周期刷新失败：${error?.message || "未知错误"}`);
+  });
+}, POLL_INTERVAL_MS);
 interval.unref();
 
 function shutdown() {

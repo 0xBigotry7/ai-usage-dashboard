@@ -7,7 +7,7 @@ credentials and does not query provider APIs directly.
 The menu bar label shows the primary quota percentage for up to three providers,
 for example `CX 74% · KM 48% · CL 13%`. Stale data is marked on the affected
 provider with `旧`, while a provider error is marked `异常`; there is no
-ambiguous global exclamation mark. Local providers use a five-minute freshness
+ambiguous global exclamation mark. Local providers use a ten-minute freshness
 threshold. Claude uses 45 minutes because its remote collector is intentionally
 polled less often.
 On first launch the app gives its native `NSStatusItem` a stable saved position
@@ -46,9 +46,11 @@ npm run build:menubar
 open "dist/AI Usage Dashboard Menu Bar.app"
 ```
 
-The build reads its version from the root `package.json`, copies SVG provider
-logos into the application bundle, and applies an ad-hoc signature so native
-login-item registration can work for local builds. Keep the app in
+The build reads its version from the root `package.json`, bundles the loopback
+collector and SVG provider logos, and applies an ad-hoc signature so native
+login-item registration can work for local builds. The packaged app starts the
+collector itself; `npm run menubar` development still needs `npm run collector`
+in another terminal. Keep the app in
 `/Applications` before enabling **Launch at Login**. macOS may ask you to confirm
 it under **System Settings › General › Login Items**.
 

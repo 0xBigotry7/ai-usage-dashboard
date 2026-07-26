@@ -1,5 +1,7 @@
 # AI Usage Dashboard
 
+<img src="public/og.png" alt="AI Usage Dashboard 展示多个平台的配额窗口、余额与 Token 估算" width="1731">
+
 一个本地优先、可扩展的 AI 用量 Dashboard，可同时展示配额窗口、官方 API
 用量、余额和 Token 估算。适合桌面浏览器、外接常亮小屏，也附带原生 macOS
 顶栏预览。
@@ -17,7 +19,9 @@
 - **本机日志 Token**：本地 CLI 会话日志中记录到的 Token 计数；
 - **Token 等效估算**：配额百分比乘以可配置的周容量。
 
-几种口径覆盖范围不同，会分开显示，永远不会相加。
+几种口径覆盖范围不同，每个平台内会分开显示。跨平台总览只为每个平台选择一个
+首选口径（官方 API、用户校准的配额换算、本机日志依次选择）；只要包含推算或
+混合范围，就会明确标成估算，而不会伪装成平台账单。
 
 ## 主要功能
 
@@ -35,8 +39,8 @@
 
 | 接入 | 配额来源 | Token 口径 | 凭证边界 |
 | --- | --- | --- | --- |
-| OpenAI Codex | 已有 Codex CLI OAuth 登录态 | 配额换算 + 本机 `token_count` 日志 | 只读 CLI 文件，不改写凭证 |
-| Kimi Code | API Key 或尚未过期的 CLI 登录态 | 配额换算 | Key 保存在仓库外的 `0600` 文件 |
+| OpenAI Codex | 已有 Codex CLI OAuth 登录态 | 可选配额换算 + 本机 `token_count` 日志 | 只读 CLI 文件，不改写凭证 |
+| Kimi Code | API Key 或尚未过期的 CLI 登录态 | 可选配额换算 | Key 保存在仓库外的 `0600` 文件 |
 | OpenAI API | 官方 Organization Usage API | 过去 7 天真实模型 Token 与请求数 | Admin Key 只留在本机采集器 |
 | OpenRouter | 官方当前 Key 用量接口 | Key 消费、上限和重置周期 | API Key 只留在本机采集器 |
 | DeepSeek API | 官方余额接口 | 只显示余额，不虚构配额窗口 | API Key 只留在本机采集器 |
@@ -95,11 +99,24 @@ AI Credits，OpenRouter 返回 Key 消费，DeepSeek 返回账户余额。这些
 Token 等效估算 = 本周已用百分比 × 配置的周容量
 ```
 
-这个数字适合观察整个账户在不同设备上的订阅压力，但周容量只是校准参数，不是平台公布的官方 Token 上限。
+容量没有内置默认值。只有显式配置后才会产出换算 Token 估算；未配置时只显示
+配额百分比：
+
+```bash
+npm run configure:capacity -- kimi 10000000
+```
+
+可将 `kimi` 换成 `codex`，或用 `clear` 代替数字来取消校准。该容量是你自己的
+显示假设，不是平台公布的官方 Token 上限。
 
 ### 本机 CLI 日志
 
-Codex 适配器只读取本地 JSONL 中的 `token_count` 和模型元数据，按累计计数的增量汇总过去 7 天。提示词和回复正文不会被导出或上传。其他设备、已删除日志和没有写入日志的调用不会被统计。
+Codex 适配器只读取本地 JSONL 中的 `token_count`、模型元数据和
+`session_meta` 关系字段，按累计计数的增量去重汇总。统计窗口与订阅配额周期对齐（取自日志事件内嵌的周配额窗口信息，
+取不到时回退为最近 7 天），resume / fork 出的会话不会重复计数。输出的
+`totalTokens` 包含缓存读取，其中的缓存读部分单独拆分为 `cachedInputTokens`。
+提示词和回复正文不会被导出或上传。该口径仅覆盖本机，其他设备、已删除日志和
+没有写入日志的调用不会被统计。
 
 可通过以下方式关闭：
 
@@ -107,9 +124,14 @@ Codex 适配器只读取本地 JSONL 中的 `token_count` 和模型元数据，�
 USAGE_HUB_CODEX_LOG_ESTIMATE=off npm run local
 ```
 
+这些口径回答的是不同问题，会带着各自标签并排展示。跨平台总览最多为每个平台
+选择一个口径；只要包含本机日志或校准后的配额换算，就会明确标成估算，而不是
+可用于结算的官方总量。
+
 ## macOS 顶栏
 
-原生顶栏程序每 60 秒读取同一个本机采集器。菜单栏会直接显示最多 3 个平台的
+打包后的原生顶栏程序会自动启动随 App 打包的本机采集器，并每 60 秒读取一次。
+菜单栏会直接显示最多 3 个平台的
 主要配额百分比；陈旧快照会在对应平台后明确标成 `旧`，平台错误会标成 `异常`，
 不再使用含义模糊的尾部感叹号。展开后可以看到每个平台返回的全部配额窗口和
 重置时间、余额、数据新鲜度，以及最多 3 个逐模型 Token。官方 API、本机日志和
@@ -122,23 +144,26 @@ USAGE_HUB_CODEX_LOG_ESTIMATE=off npm run local
 `.app`、DMG 或 Homebrew cask。需要 macOS 14 或更新版本、Node.js 22.13 或更新
 版本，以及包含 Swift 6 的 Xcode 16 或更新版本。
 
-先启动 Dashboard 和只监听本机的采集器，并保持这个终端窗口运行：
+先安装依赖；只有需要浏览器页面时才需要另外启动本地 Dashboard：
 
 ```bash
 npm ci
 npm run local
 ```
 
-另开一个终端构建并启动顶栏应用：
+构建并启动顶栏应用：
 
 ```bash
 npm run build:menubar
 open "dist/AI Usage Dashboard Menu Bar.app"
 ```
 
-顶栏应用只是本机显示客户端，运行时需要采集器持续监听
-`127.0.0.1:4317`。如果只想进行 Swift 开发而不组装独立 `.app`，可运行
-`npm run menubar`。确认构建可用后，再把 `dist/` 里的应用拖进
+打包后的 App 会自行带起只监听 `127.0.0.1:4317` 的采集器，凭证仍只从
+`~/.usage-hub/env` 读取。直接运行 `swift run` 没有 App Bundle，因此 Swift
+开发时仍需在另一个终端运行 `npm run collector`。若希望“打开 Dashboard”
+跳到线上实例，可用
+`USAGE_HUB_DASHBOARD_URL=https://example.com npm run build:menubar` 构建。
+确认构建可用后，再把 `dist/` 里的应用拖进
 `/Applications`，然后才能稳定使用“登录时启动”。
 
 本地构建使用 ad-hoc 签名，适合在完成构建的这台电脑上开发和个人安装，但不等于
@@ -184,6 +209,7 @@ open "dist/AI Usage Dashboard Menu Bar.app"
 - [引用与实现来源](docs/attribution.md)
 - [第三方声明](THIRD_PARTY_NOTICES.md)
 - [Roadmap](docs/roadmap.md)
+- [变更日志](CHANGELOG.md)
 - [参与贡献](CONTRIBUTING.md)
 
 ## 项目状态

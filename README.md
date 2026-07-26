@@ -4,6 +4,8 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Node.js 22+](https://img.shields.io/badge/Node.js-22%2B-5FA04E.svg)](package.json)
 
+<img src="public/og.png" alt="AI Usage Dashboard showing provider quota windows, balances, and token estimates" width="1731">
+
 A local-first, extensible dashboard for AI quota windows, official API usage,
 balances, and token estimates. It includes a responsive web dashboard, a
 purpose-built always-on display, and a native macOS menu bar companion.
@@ -26,7 +28,10 @@ It deliberately separates these concepts:
   percentage.
 
 Official usage, observed tokens, and token equivalents cover different scopes.
-They are shown independently and are never added together.
+Each provider keeps those methods separate. The cross-provider headline selects
+one preferred method per provider (`api_usage`, then a user-calibrated
+`quota_percentage`, then `session_logs`) and marks mixed or inferred totals as an
+estimate rather than presenting them as a bill.
 
 ## Highlights
 
@@ -45,8 +50,8 @@ They are shown independently and are never added together.
 
 | Adapter | Quota source | Token methods | Credential boundary |
 | --- | --- | --- | --- |
-| OpenAI Codex | Existing Codex CLI OAuth session | Quota conversion and local `token_count` events | Reads CLI-owned files; never writes credentials |
-| Kimi Code | API key or unexpired CLI session | Quota conversion | Optional key stored outside the repository with mode `0600` |
+| OpenAI Codex | Existing Codex CLI OAuth session | Optional quota conversion and local `token_count` events | Reads CLI-owned files; never writes credentials |
+| Kimi Code | API key or unexpired CLI session | Optional quota conversion | Optional key stored outside the repository with mode `0600` |
 | OpenAI API | Documented Organization Usage API | Exact seven-day model tokens and request counts | Admin key stays in the local collector |
 | OpenRouter | Documented current-key endpoint | Key spend, limit, and reset period | API key stays in the local collector |
 | DeepSeek API | Documented user-balance endpoint | Balance only; no invented quota window | API key stays in the local collector |
@@ -109,15 +114,30 @@ reports account balance. These values are not converted into subscription quota.
 estimated tokens = weekly used percentage × configured weekly capacity
 ```
 
-This is useful for comparing overall subscription pressure across devices, but
-the capacity is a calibration value rather than an official token limit.
+There is no built-in capacity. The converted token estimate is produced only
+after you set a calibration value; without one, the dashboard shows the quota
+percentage alone:
+
+```bash
+npm run configure:capacity -- kimi 10000000
+```
+
+Use `codex` instead of `kimi` to calibrate Codex, or pass `clear` instead of a
+number to remove a calibration. The capacity is your own display assumption,
+not an official token limit published by the provider.
 
 ### Local CLI logs
 
-The Codex adapter scans only `token_count` and model metadata events from local
-JSONL session files. It sums cumulative-counter deltas over the past seven days.
-Prompt and response content is neither exported nor uploaded. This method can
-miss usage from other devices or deleted logs.
+The Codex adapter scans only `token_count`, model metadata, and rollout
+relationship fields from local JSONL session files. It sums deduplicated
+cumulative-counter deltas over the
+current subscription window, aligned with the weekly quota cycle embedded in
+the log events (falling back to the past seven days when no window is found).
+Resumed or forked sessions are not double-counted. The result reports
+`totalTokens`, which includes cached input reads, with the cached-read portion
+broken out as `cachedInputTokens`. Prompt and response content is neither
+exported nor uploaded. This method covers this machine only and can miss usage
+from other devices or deleted logs.
 
 Disable it with:
 
@@ -125,9 +145,15 @@ Disable it with:
 USAGE_HUB_CODEX_LOG_ESTIMATE=off npm run local
 ```
 
+These methods answer different questions and remain side by side with distinct
+labels on each provider. The cross-provider headline selects at most one method
+per provider; calibrated quota conversions and local-log values make that
+headline an explicitly marked estimate, not a billing total.
+
 ## macOS menu bar
 
-The native companion reads the same loopback collector every 60 seconds. It
+The packaged native companion starts its bundled loopback collector and reads
+it every 60 seconds. It
 shows the primary quota percentage for up to three providers directly in the
 menu bar. Provider health is stated inline: `旧` marks a stale snapshot and
 `异常` marks a provider error, instead of using an ambiguous trailing
@@ -143,23 +169,27 @@ repository does not publish a notarized `.app`, DMG, or Homebrew cask.
 Requirements are macOS 14 or newer, Node.js 22.13 or newer, and Xcode 16 or
 newer with Swift 6.
 
-First start the dashboard and loopback collector, and keep this terminal open:
+Install dependencies. Start the web dashboard separately only if you want the
+browser view:
 
 ```bash
 npm ci
 npm run local
 ```
 
-In a second terminal, build and launch the menu-bar app:
+Build and launch the menu-bar app:
 
 ```bash
 npm run build:menubar
 open "dist/AI Usage Dashboard Menu Bar.app"
 ```
 
-The app is only a local display client; it expects the collector to remain
-available at `127.0.0.1:4317`. For Swift development without assembling the
-standalone bundle, use `npm run menubar`. After testing the build, drag the
+The packaged app carries and starts the collector itself, while credentials
+remain in `~/.usage-hub/env`. `swift run` does not have an app bundle, so Swift
+development still requires `npm run collector` in another terminal. To make
+the Dashboard button open a hosted installation, build with
+`USAGE_HUB_DASHBOARD_URL=https://example.com npm run build:menubar`. After
+testing the build, drag the
 `.app` from `dist/` to `/Applications` before enabling **Launch at Login**.
 
 The local build is ad-hoc signed. It is suitable for development and personal
@@ -237,6 +267,7 @@ tests/                Normalization, estimation, security, and render tests
 - [Attribution and provenance](docs/attribution.md)
 - [Third-party notices](THIRD_PARTY_NOTICES.md)
 - [Roadmap](docs/roadmap.md)
+- [Changelog](CHANGELOG.md)
 - [Contributing](CONTRIBUTING.md)
 
 ## Status

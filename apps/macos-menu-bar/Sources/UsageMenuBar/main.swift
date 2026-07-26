@@ -5,7 +5,7 @@ import ServiceManagement
 import SwiftUI
 import UserNotifications
 
-private let defaultStaleInterval: TimeInterval = 5 * 60
+private let defaultStaleInterval: TimeInterval = 10 * 60
 private let claudeStaleInterval: TimeInterval = 45 * 60
 private let notificationThresholdOptions = [70, 80, 90]
 
@@ -55,13 +55,16 @@ private struct UsageProvider: Decodable, Identifiable {
     let updatedAt: String?
     let windows: [UsageWindow]
     let balance: UsageBalance?
+    let message: String?
     let tokenUsage: TokenEstimate?
     let tokenEstimates: [TokenEstimate]?
 
+    // Mirrors the web dashboard's primary-window choice (weekly, otherwise
+    // the last window) while still requiring a usable percentage for the
+    // menu bar's percent display.
     var primaryWindow: UsageWindow? {
         windows.first(where: { $0.id == "weekly" && $0.usedPercent != nil })
-            ?? windows.first(where: { $0.id == "monthly" && $0.usedPercent != nil })
-            ?? windows.first(where: { $0.usedPercent != nil })
+            ?? windows.last(where: { $0.usedPercent != nil })
     }
 
     var updatedDate: Date? {
@@ -117,6 +120,7 @@ private struct ModelTokenUsage: Decodable {
     let id: String
     let label: String
     let estimatedTokens: Double?
+    let cachedInputTokens: Double?
     let requestCount: Double?
 }
 
@@ -126,6 +130,7 @@ private struct ModelTokenDisplay: Identifiable {
     let tokens: Double
     let basis: String
     let estimated: Bool
+    let cachedInputTokens: Double?
 }
 
 private struct WindowPace {
@@ -212,7 +217,15 @@ private final class UsageStore: ObservableObject {
         refreshLaunchAtLoginStatus()
         Task {
             await synchronizeNotificationAuthorization()
-            await refresh()
+            for delaySeconds in [0, 2, 4, 8, 16] {
+                if delaySeconds > 0 {
+                    try? await Task.sleep(
+                        nanoseconds: UInt64(delaySeconds) * 1_000_000_000
+                    )
+                }
+                await refresh()
+                if !providers.isEmpty { break }
+            }
         }
         refreshTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
             Task { @MainActor in
@@ -253,7 +266,12 @@ private final class UsageStore: ObservableObject {
     }
 
     func openDashboard() {
-        guard let url = URL(string: "http://localhost:3000") else { return }
+        let configuredURL = Bundle.main.object(
+            forInfoDictionaryKey: "UsageHubDashboardURL"
+        ) as? String
+        guard let url = URL(
+            string: configuredURL ?? "http://localhost:3000"
+        ) else { return }
         NSWorkspace.shared.open(url)
     }
 
@@ -724,18 +742,28 @@ private struct ProviderRow: View {
         Color(hex: provider.accent) ?? .green
     }
 
+    // Only the preferred basis feeds the top-3 list so one model never
+    // appears twice under two different accounting bases. Priority matches
+    // the web dashboard: api_usage > quota_percentage > session_logs.
+    private var preferredTokenEstimate: TokenEstimate? {
+        let estimates = provider.effectiveTokenEstimates
+        return estimates.first(where: { $0.basis == "api_usage" })
+            ?? estimates.first(where: { $0.basis == "quota_percentage" })
+            ?? estimates.first(where: { $0.basis == "session_logs" })
+    }
+
     private var modelTokens: [ModelTokenDisplay] {
-        let entries = provider.effectiveTokenEstimates.enumerated().flatMap { usageIndex, usage in
-            (usage.models ?? []).compactMap { model -> ModelTokenDisplay? in
-                guard let tokens = model.estimatedTokens else { return nil }
-                return ModelTokenDisplay(
-                    id: "\(usageIndex)-\(usage.basis)-\(model.id)",
-                    label: model.label,
-                    tokens: tokens,
-                    basis: usage.basis,
-                    estimated: usage.estimated ?? (usage.basis != "api_usage")
-                )
-            }
+        guard let usage = preferredTokenEstimate else { return [] }
+        let entries = (usage.models ?? []).compactMap { model -> ModelTokenDisplay? in
+            guard let tokens = model.estimatedTokens else { return nil }
+            return ModelTokenDisplay(
+                id: "\(usage.basis)-\(model.id)",
+                label: model.label,
+                tokens: tokens,
+                basis: usage.basis,
+                estimated: usage.estimated ?? (usage.basis != "api_usage"),
+                cachedInputTokens: model.cachedInputTokens
+            )
         }
         return Array(entries.sorted { $0.tokens > $1.tokens }.prefix(3))
     }
@@ -760,6 +788,16 @@ private struct ProviderRow: View {
                         .monospacedDigit()
                 }
                 .font(.system(size: 10))
+            }
+
+            if let message = provider.message, !message.isEmpty {
+                Label(message, systemImage: "clock.badge.exclamationmark")
+                    .font(.system(size: 9))
+                    .foregroundStyle(
+                        provider.state == "ready" ? Color.orange : Color.red
+                    )
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             if !modelTokens.isEmpty {
@@ -829,7 +867,7 @@ private struct ProviderRow: View {
         if let balance = provider.balance {
             return formatBalance(balance)
         }
-        return provider.state == "ready" ? "—" : "!"
+        return provider.state == "ready" ? "—" : "异常"
     }
 
     private var stateLabel: String {
@@ -893,6 +931,18 @@ private struct WindowRow: View {
 private struct ModelTokenRow: View {
     let model: ModelTokenDisplay
 
+    private var tokenText: String {
+        var text = "\(model.estimated ? "≈" : "")\(formatTokens(model.tokens))"
+        if model.basis == "session_logs",
+           let cached = model.cachedInputTokens,
+           model.tokens > 0,
+           cached > 0 {
+            let share = Int((cached / model.tokens * 100).rounded())
+            text += " · \(share)% 缓存"
+        }
+        return text
+    }
+
     var body: some View {
         HStack(spacing: 7) {
             Text(basisLabel(model.basis))
@@ -911,7 +961,7 @@ private struct ModelTokenRow: View {
 
             Spacer(minLength: 8)
 
-            Text("\(model.estimated ? "≈" : "")\(formatTokens(model.tokens))")
+            Text(tokenText)
                 .font(.system(size: 10, weight: .semibold, design: .rounded))
                 .monospacedDigit()
         }
@@ -1146,21 +1196,28 @@ private func formatTokens(_ value: Double) -> String {
     return formatCompactNumber(value, maximumFractionDigits: 0)
 }
 
+// NumberFormatter is expensive to create; all call sites are on the main
+// thread, so a single shared instance with a per-call fraction setting is
+// safe here.
+private let compactNumberFormatter: NumberFormatter = {
+    let formatter = NumberFormatter()
+    formatter.numberStyle = .decimal
+    return formatter
+}()
+
 private func formatCompactNumber(
     _ value: Double,
     maximumFractionDigits: Int = 1
 ) -> String {
-    let formatter = NumberFormatter()
-    formatter.numberStyle = .decimal
-    formatter.maximumFractionDigits = maximumFractionDigits
-    return formatter.string(from: NSNumber(value: value)) ?? "\(value)"
+    compactNumberFormatter.maximumFractionDigits = maximumFractionDigits
+    return compactNumberFormatter.string(from: NSNumber(value: value)) ?? "\(value)"
 }
 
 private func basisLabel(_ basis: String) -> String {
     switch basis {
-    case "api_usage": return "API"
-    case "session_logs": return "日志"
-    case "quota_percentage": return "配额"
+    case "api_usage": return "API·账户"
+    case "session_logs": return "日志·本机"
+    case "quota_percentage": return "配额·校准"
     default: return "其他"
     }
 }
@@ -1191,11 +1248,13 @@ private extension Color {
 @MainActor
 private final class UsageMenuBarDelegate: NSObject, NSApplicationDelegate {
     private var store: UsageStore?
+    private var collectorProcess: Process?
     private var statusItem: NSStatusItem?
     private var popover: NSPopover?
     private var statusUpdateCancellable: AnyCancellable?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        collectorProcess = startBundledCollector()
         let store = UsageStore()
         let statusItemPositionKey =
             "NSStatusItem Preferred Position AIUsageDashboardUsage"
@@ -1236,6 +1295,61 @@ private final class UsageMenuBarDelegate: NSObject, NSApplicationDelegate {
             DispatchQueue.main.async {
                 self?.updateStatusItem()
             }
+        }
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        if collectorProcess?.isRunning == true {
+            collectorProcess?.terminate()
+        }
+    }
+
+    private func startBundledCollector() -> Process? {
+        guard
+            let resourceURL = Bundle.main.resourceURL,
+            let nodeURL = [
+                "/opt/homebrew/bin/node",
+                "/usr/local/bin/node",
+            ]
+            .map(URL.init(fileURLWithPath:))
+            .first(where: {
+                FileManager.default.isExecutableFile(atPath: $0.path)
+            })
+        else {
+            NSLog("Bundled collector not started: Node.js was not found")
+            return nil
+        }
+
+        let collectorURL = resourceURL
+            .appendingPathComponent("collector", isDirectory: true)
+            .appendingPathComponent("server.mjs")
+        guard FileManager.default.fileExists(atPath: collectorURL.path) else {
+            // `swift run` intentionally keeps the collector external.
+            return nil
+        }
+
+        let process = Process()
+        process.executableURL = nodeURL
+        process.arguments = [
+            "--enable-source-maps",
+            collectorURL.path,
+        ]
+        process.currentDirectoryURL = resourceURL
+        process.environment = ProcessInfo.processInfo.environment.merging([
+            "USAGE_HUB_HOST": "127.0.0.1",
+            "USAGE_HUB_PORT": "4317",
+        ]) { _, bundledValue in bundledValue }
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+            return process
+        } catch {
+            NSLog(
+                "Bundled collector failed to start: %@",
+                String(describing: error)
+            )
+            return nil
         }
     }
 

@@ -43,9 +43,14 @@ export class HistoryStore {
       WHERE captured_at >= ?
       ORDER BY captured_at ASC
     `);
+    this.prune = this.database.prepare(`
+      DELETE FROM usage_history WHERE captured_at < ?
+    `);
   }
 
   save(providers, capturedAt = new Date()) {
+    // Drop rows older than 31 days so local history stays bounded.
+    this.prune.run(new Date(Date.now() - 31 * 24 * 3600_000).toISOString());
     const capturedIso = capturedAt.toISOString();
     const fiveMinuteBucket = Math.floor(capturedAt.getTime() / 300_000);
     for (const provider of providers) {

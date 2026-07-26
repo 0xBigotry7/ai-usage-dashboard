@@ -14,6 +14,14 @@ logos backed by fragile scraping is not a product goal.
   duration, plus opt-in, cycle-deduplicated 70% / 80% / 90% alerts.
 - Codex only renders windows supplied by the collector; the dashboard and menu
   app do not invent a five-hour quota.
+- Token-estimate accuracy pass: quota conversion no longer assumes a built-in
+  weekly capacity (unset means percentage-only display), session-log estimates
+  align with the subscription quota window, split out cached input reads, and
+  deduplicate resumed/forked sessions, and OpenAI Organization Usage no longer
+  double-counts audio tokens.
+- Collector hardening: loopback `Host` header validation, adapters that fail
+  without taking down the rest of the collection, and 31-day history retention
+  with a `truncated` flag on the history API.
 
 ## Shipped in 0.7.0
 
