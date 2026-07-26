@@ -20,8 +20,9 @@ Open the popover to see:
 - projected period-end usage and an estimated exhaustion time when reset and
   duration data make a pace calculation possible;
 - provider-level data freshness and balances;
-- up to three model token totals, clearly marked as official API usage, local
-  session-log estimates, or quota-percentage estimates;
+- today's observed input + output total when the collector supplies it;
+- up to three model token totals, marked with their period and as official API
+  usage, local session-log observations, or quota-percentage estimates;
 - real provider artwork loaded from `public/brands`, including upstream color
   variants for Codex, Kimi, and Claude;
 - optional 70%, 80%, or 90% quota notifications (80% by default), deduplicated

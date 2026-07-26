@@ -58,6 +58,8 @@ export function estimateWeeklyQuotaTokens(
 
   return {
     basis: "quota_percentage",
+    periodId: "weekly_quota",
+    scope: "calibrated_quota",
     estimated: true,
     totalTokens: primary.estimatedTokens,
     capacityTokens: primary.capacityTokens,

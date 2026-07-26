@@ -28,10 +28,10 @@ It deliberately separates these concepts:
   percentage.
 
 Official usage, observed tokens, and token equivalents cover different scopes.
-Each provider keeps those methods separate. The cross-provider headline selects
-one preferred method per provider (`api_usage`, then a user-calibrated
-`quota_percentage`, then `session_logs`) and marks mixed or inferred totals as an
-estimate rather than presenting them as a bill.
+Each provider keeps those methods separate. The cross-provider overview has
+three independent layers: tokens recorded today, tokens recorded in the current
+subscription cycle, and quota-based conversion. The layers are never added
+together, and quota conversion is never presented as observed usage.
 
 ## Highlights
 
@@ -43,7 +43,8 @@ estimate rather than presenting them as a bill.
 - dedicated `/display` view for 480×320 and 800×480 always-on screens, with
   automatic paging, fullscreen, and Screen Wake Lock controls;
 - native macOS menu bar summary for up to three providers, with every quota
-  window, freshness warnings, and available per-model tokens in its popover;
+  window, freshness warnings, today's observed input/output total, and
+  available per-model tokens in its popover;
 - optional multi-host Cloudflare deployment with a strict snapshot allowlist.
 
 ## Included adapters
@@ -129,15 +130,22 @@ not an official token limit published by the provider.
 ### Local CLI logs
 
 The Codex adapter scans only `token_count`, model metadata, and rollout
-relationship fields from local JSONL session files. It sums deduplicated
-cumulative-counter deltas over the
-current subscription window, aligned with the weekly quota cycle embedded in
-the log events (falling back to the past seven days when no window is found).
-Resumed or forked sessions are not double-counted. The result reports
-`totalTokens`, which includes cached input reads, with the cached-read portion
-broken out as `cachedInputTokens`. Prompt and response content is neither
-exported nor uploaded. This method covers this machine only and can miss usage
-from other devices or deleted logs.
+relationship fields from local JSONL session files. It reports two independent
+observed ranges: the current local calendar day and the current subscription
+cycle. The cycle is aligned with the weekly quota window embedded in log events,
+falling back to the trailing seven days.
+
+Counters are accumulated as deltas. When a fork or resumed rollout replays an
+ancestor's cumulative history with new timestamps, the matching ancestor prefix
+is removed before the first new turn is counted. This prevents child-agent work
+from multiplying parent usage while retaining novel work from parallel
+children.
+
+`totalTokens = inputTokens + outputTokens`. Cached input is already included in
+`inputTokens`, and reasoning output is already included in `outputTokens`; both
+are shown as subsets and are not added again. Prompt and response content is
+neither exported nor uploaded. This method covers this machine only and can
+miss usage from other devices, deleted logs, or events the CLI never wrote.
 
 Disable it with:
 
@@ -146,9 +154,10 @@ USAGE_HUB_CODEX_LOG_ESTIMATE=off npm run local
 ```
 
 These methods answer different questions and remain side by side with distinct
-labels on each provider. The cross-provider headline selects at most one method
-per provider; calibrated quota conversions and local-log values make that
-headline an explicitly marked estimate, not a billing total.
+labels on each provider. The overview keeps “today recorded,” “subscription
+cycle recorded,” and “quota conversion” separate. A provider without an
+observed token source is shown as unavailable in the recorded layer rather than
+receiving a fabricated zero.
 
 ## macOS menu bar
 
@@ -158,9 +167,10 @@ shows the primary quota percentage for up to three providers directly in the
 menu bar. Provider health is stated inline: `旧` marks a stale snapshot and
 `异常` marks a provider error, instead of using an ambiguous trailing
 exclamation mark. Its popover shows every returned quota window and reset time,
-balances, freshness, and up to three available model token totals per provider.
-Official API totals, local-log observations, and quota-based estimates retain
-their distinct labels. It does not read or store provider credentials.
+balances, freshness, today's observed input + output total when available, and
+up to three model token totals per provider. Official API totals, local-log
+observations, and quota-based estimates retain their distinct labels. It does
+not read or store provider credentials.
 
 ### Build and use it locally
 

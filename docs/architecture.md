@@ -63,19 +63,27 @@ assumption. There is no built-in capacity: the estimate is only produced when
 the user sets `USAGE_HUB_*_WEEKLY_TOKEN_CAPACITY`, otherwise the quota
 percentage is shown alone.
 
-`session_logs` scans local Codex JSONL files for `token_count` and model metadata
-events. It sums cumulative-counter deltas over the current subscription window,
-aligned with the weekly quota cycle embedded in the log events and falling back
-to the past seven days when no window is found. Resumed or forked sessions that
-inherit a parent counter are deduplicated. The reported `totalTokens` includes
-cached input reads, with the cached-read portion broken out as
-`cachedInputTokens`. It does not inspect or export message bodies. It covers
-this machine only and can miss other devices and deleted logs.
+`session_logs` scans local Codex JSONL files for `token_count`, model metadata,
+and rollout relationships. It emits independent `today` and `weekly_cycle`
+records. The latter aligns with the weekly quota cycle embedded in log events
+and falls back to the trailing seven days when no valid window is found.
+
+Each rollout is a cumulative counter stream. Before delta accounting, a child
+rollout's leading sequence of cumulative token vectors is matched against its
+ancestor chain; a matching replay prefix is discarded. The first novel child
+turn then uses its per-turn counter as the inherited baseline. This preserves
+parallel-child work without counting a replayed parent history again.
+
+The reported `totalTokens` equals `inputTokens + outputTokens` when the source
+provides the component counters. `cachedInputTokens` is a subset of input and
+`reasoningOutputTokens` is a subset of output, so neither is added again. The
+collector does not inspect or export message bodies. This source covers this
+machine only and can miss other devices, deleted logs, or unwritten events.
 
 The provider view compares these methods without merging them. The
-cross-provider headline selects at most one preferred method per provider
-(`api_usage`, then a calibrated `quota_percentage`, then `session_logs`) and
-labels any inferred or mixed-scope sum as an estimate rather than a bill.
+cross-provider overview has three independent layers: observed today, observed
+in the current subscription cycle, and calibrated quota conversion. Overlapping
+periods and scopes are never added together.
 
 ### Display clients
 
@@ -95,10 +103,11 @@ introduces no additional collection or credential path.
 The native macOS menu bar companion is a second read-only client. It polls the
 loopback API once per minute and never queries providers or stores credentials
 itself. Its label summarizes the primary quota for up to three providers. The
-popover renders every returned quota window, balances and freshness, plus the
-three largest available per-model token totals for each provider. A stale or
-unreachable collector adds a visible warning. Launch-at-login registration is
-handled locally with macOS `SMAppService`.
+popover renders every returned quota window, balances and freshness, plus
+today's observed input/output total and the three largest available per-model
+token totals for each provider. A stale or unreachable collector adds a
+visible warning. Launch-at-login registration is handled locally with macOS
+`SMAppService`.
 
 ### Freshness and honest absence
 
@@ -164,6 +173,8 @@ A minimal provider looks like:
   "tokenEstimates": [
     {
       "basis": "quota_percentage",
+      "periodId": "weekly_quota",
+      "scope": "calibrated_quota",
       "estimated": true,
       "totalTokens": 3200000,
       "capacityTokens": 10000000,
