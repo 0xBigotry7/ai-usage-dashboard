@@ -4,6 +4,17 @@ The project is intentionally capability-led. Adding a provider is valuable only
 when its data source is trustworthy and it adds a useful signal. A long list of
 logos backed by fragile scraping is not a product goal.
 
+## Shipped in 0.8.0
+
+- Native AppKit status item that keeps the first three providers visible in the
+  menu bar, including explicit failure and stale-data states.
+- Three-provider summary strip, branded provider cards, stable macOS Tahoe menu
+  placement, and complete real quota-window details.
+- Pace projections when a provider supplies both a real reset time and window
+  duration, plus opt-in, cycle-deduplicated 70% / 80% / 90% alerts.
+- Codex only renders windows supplied by the collector; the dashboard and menu
+  app do not invent a five-hour quota.
+
 ## Shipped in 0.7.0
 
 - Dedicated `/display` surface for 480×320 and 800×480 always-on screens, with
@@ -17,23 +28,20 @@ logos backed by fragile scraping is not a product goal.
 
 ## Highest-value next steps
 
-1. **Pace and burn-down** — compare consumption against time elapsed in each
-   quota window, forecast exhaustion, and distinguish “high but on pace” from
-   “low but accelerating.”
+1. **Predictive alerts and health controls** — add acceleration-aware
+   forecasting, collector-outage and stale-data alerts, per-provider controls,
+   and configurable cooldowns.
 2. **Standardized capability schema** — let adapters declare quota windows,
    exact tokens, estimates, balances, costs, history, and refresh guarantees so
    every client can render unsupported fields honestly.
-3. **Actionable notifications** — native notifications for threshold crossing,
-   projected exhaustion, collector outages, and stale data, with per-provider
-   controls and cooldowns.
-4. **Physical display integrations** — publish a stable, minimal endpoint and
+3. **Physical display integrations** — publish a stable, minimal endpoint and
    reference client for [AWTRIX 3](https://github.com/blueforcer/awtrix3) /
    Ulanzi TC001-class pixel displays without sending provider credentials to
    the device.
-5. **Distributable macOS releases** — Developer ID signing, notarization,
+4. **Distributable macOS releases** — Developer ID signing, notarization,
    release checksums, and an optional Homebrew cask. Local ad-hoc builds remain
    available.
-6. **Schema and endpoint resilience** — extract the custom snapshot JSON
+5. **Schema and endpoint resilience** — extract the custom snapshot JSON
    Schema, add fixtures for unstable provider endpoints, and expose adapter
    capability metadata through collector discovery.
 

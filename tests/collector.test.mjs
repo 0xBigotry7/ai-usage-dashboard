@@ -477,6 +477,36 @@ test("merges independently pushed provider rows without exposing legacy payloads
     merged.providers.map((provider) => provider.id),
     ["codex", "example-ai"],
   );
+  assert.equal(merged.collector.version, "0.8.0");
   assert.equal(merged.collector.syncMode, "multi-host-sanitized-push");
   assert.doesNotMatch(JSON.stringify(merged), /must-not-appear|accessToken/);
+});
+
+test("drops malformed remote balances instead of emitting a null numeric value", () => {
+  const snapshot = sanitizeRemoteSnapshot({
+    collector: {
+      host: "private-host.local",
+      version: "0.7.0",
+      state: "online",
+    },
+    providers: [
+      {
+        id: "example-ai",
+        name: "Example AI",
+        shortName: "EA",
+        accent: "#d89574",
+        state: "ready",
+        source: "Custom collector",
+        updatedAt: "2026-07-24T02:00:00.000Z",
+        windows: [],
+        balance: {
+          label: "余额",
+          value: "not-a-number",
+          unit: "USD",
+        },
+      },
+    ],
+  });
+
+  assert.equal(snapshot.providers[0].balance, null);
 });

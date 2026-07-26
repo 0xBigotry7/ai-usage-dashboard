@@ -123,6 +123,18 @@ open "dist/AI Usage Dashboard Menu Bar.app"
 开发模式可运行 `npm run menubar`，需要 macOS 14 或更新版本。
 使用“登录时启动”开关前，请先把构建出的应用移到 `/Applications`。
 
+本地构建使用 ad-hoc 签名，适合开发和个人安装，但不等于已经公证的公开发行版。
+手动运行 **macOS package proof** 工作流可以在不配置证书的情况下构建同样的
+临时测试包；它只会上传短期 workflow artifact，不会创建 GitHub Release。
+公开分发前请阅读
+[macOS 打包、签名与 Homebrew 指南](docs/macos-release.md)。
+
+顶栏现在会固定显示 3 个平台的用量摘要；只有平台同时提供真实周期长度和重置时间
+时才会计算周期末用量趋势；用户主动开启后，还可以发送去重的 70% / 80% / 90%
+额度提醒。pace 与通知行为借鉴并改写自 CodexBar 的实现思路，具体参考文件和复用
+边界见
+[CodexBar 实现审阅](docs/attribution.md#codexbar-implementation-review)。
+
 ## 外接常亮屏
 
 `/display` 是专门为外接屏设计的信息面，不是把完整 Dashboard 强行压缩。它在
@@ -146,6 +158,7 @@ open "dist/AI Usage Dashboard Menu Bar.app"
 
 - [架构与数据流](docs/architecture.md)
 - [外接屏与 kiosk 配置](docs/external-display.md)
+- [macOS 打包、签名与 Homebrew](docs/macos-release.md)
 - [配置与 Cloudflare 部署](docs/configuration.md)
 - [开发新的 Provider](docs/provider-development.md)
 - [安全模型与限制](docs/security.md)

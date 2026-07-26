@@ -1101,26 +1101,6 @@ kbd {
   justify-content: space-between;
 }
 
-.missing-window {
-  align-items: center;
-  border-bottom: 1px solid var(--line);
-  display: flex;
-  justify-content: space-between;
-  padding: 15px 0;
-}
-
-.missing-window span {
-  color: #a4a8af;
-  font-size: 11px;
-  font-weight: 650;
-}
-
-.missing-window p {
-  color: #666c75;
-  font-size: 10px;
-  margin: 0;
-}
-
 .provider-notice {
   align-items: flex-start;
   background: rgba(244, 202, 113, 0.055);

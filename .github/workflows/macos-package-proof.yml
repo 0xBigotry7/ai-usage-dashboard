@@ -1,0 +1,58 @@
+name: macOS package proof
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: macos-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22.13.0"
+          cache: npm
+
+      - run: npm ci
+      - run: npm run build:menubar
+
+      - name: Validate and package ad-hoc build
+        id: package
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          app="dist/AI Usage Dashboard Menu Bar.app"
+          plist="$app/Contents/Info.plist"
+          version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$plist")"
+          asset="AI-Usage-Dashboard-Menu-Bar-${version}-adhoc.zip"
+
+          plutil -lint "$plist"
+          xattr -cr "$app"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          /usr/bin/ditto --norsrc -c -k --keepParent "$app" "$RUNNER_TEMP/$asset"
+          mkdir "$RUNNER_TEMP/macos-package-proof"
+          /usr/bin/ditto -x -k "$RUNNER_TEMP/$asset" "$RUNNER_TEMP/macos-package-proof"
+          codesign --verify --deep --strict --verbose=2 \
+            "$RUNNER_TEMP/macos-package-proof/AI Usage Dashboard Menu Bar.app"
+          (
+            cd "$RUNNER_TEMP"
+            shasum -a 256 "$asset" > "$asset.sha256"
+          )
+
+          echo "asset=$asset" >> "$GITHUB_OUTPUT"
+
+      - name: Upload proof artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: macos-menu-bar-adhoc
+          path: |
+            ${{ runner.temp }}/${{ steps.package.outputs.asset }}
+            ${{ runner.temp }}/${{ steps.package.outputs.asset }}.sha256
+          retention-days: 14

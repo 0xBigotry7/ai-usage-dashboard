@@ -42,6 +42,10 @@ test("build contains the dashboard, dedicated display, brands, and protected rou
   assert.match(dashboard, /历史积累中/);
   assert.match(dashboard, /数据已过期/);
   assert.doesNotMatch(dashboard, /setCompact|dashboard--compact/);
+  assert.doesNotMatch(
+    dashboard,
+    /当前账户没有返回 5 小时窗口|missing-window/,
+  );
   assert.match(providerLogo, /BRAND_ASSETS/);
   assert.ok(
     ["claude.svg", "codex.svg", "openai.svg", "kimi.svg", "deepseek.svg", "openrouter.svg", "githubcopilot.svg"]

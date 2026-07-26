@@ -163,24 +163,19 @@ function sanitizeProvider(value: unknown) {
   const windows = rawWindows
     .map(sanitizeWindow)
     .filter((window): window is NonNullable<typeof window> => Boolean(window));
-  const balance =
+  const balanceInput =
     input.balance && typeof input.balance === "object"
+      ? (input.balance as Record<string, unknown>)
+      : null;
+  const balanceValue = balanceInput
+    ? boundedNumber(balanceInput.value, 0, Number.MAX_SAFE_INTEGER)
+    : null;
+  const balance =
+    balanceInput && balanceValue !== null
       ? {
-          label:
-            boundedString(
-              (input.balance as Record<string, unknown>).label,
-              40,
-            ) || "余额",
-          value: boundedNumber(
-            (input.balance as Record<string, unknown>).value,
-            0,
-            Number.MAX_SAFE_INTEGER,
-          ),
-          unit:
-            boundedString(
-              (input.balance as Record<string, unknown>).unit,
-              20,
-            ) || "",
+          label: boundedString(balanceInput.label, 40) || "余额",
+          value: balanceValue,
+          unit: boundedString(balanceInput.unit, 20) || "",
         }
       : null;
 
@@ -285,7 +280,7 @@ export function mergeRemoteProviderRows(rows: RemoteSnapshotRow[]) {
     return {
       generatedAt: generatedAt || new Date().toISOString(),
       collector: {
-        version: "0.6.0",
+        version: "0.8.0",
         state: providers.some((provider) => provider.state === "ready")
           ? "online"
           : "attention",

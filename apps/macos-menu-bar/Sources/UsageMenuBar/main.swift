@@ -1,13 +1,47 @@
 import AppKit
+import Combine
 import Foundation
 import ServiceManagement
 import SwiftUI
+import UserNotifications
 
 private let staleInterval: TimeInterval = 5 * 60
+private let notificationThresholdOptions = [70, 80, 90]
+
+private enum PreferenceKey {
+    static let notificationsEnabled = "usage-menu.notifications-enabled"
+    static let notificationThreshold = "usage-menu.notification-threshold"
+    static let deliveredNotificationCycles = "usage-menu.delivered-notification-cycles"
+}
 
 private struct UsagePayload: Decodable {
     let generatedAt: String?
     let providers: [UsageProvider]
+    let skippedProviderCount: Int
+
+    private enum CodingKeys: String, CodingKey {
+        case generatedAt
+        case providers
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        generatedAt = try container.decodeIfPresent(String.self, forKey: .generatedAt)
+        let decoded = try container.decode(
+            [LossyDecodable<UsageProvider>].self,
+            forKey: .providers
+        )
+        providers = decoded.compactMap(\.value)
+        skippedProviderCount = decoded.count - providers.count
+    }
+}
+
+private struct LossyDecodable<Value: Decodable>: Decodable {
+    let value: Value?
+
+    init(from decoder: Decoder) throws {
+        value = try? Value(from: decoder)
+    }
 }
 
 private struct UsageProvider: Decodable, Identifiable {
@@ -36,6 +70,10 @@ private struct UsageProvider: Decodable, Identifiable {
     var isStale: Bool {
         guard let updatedDate else { return true }
         return Date().timeIntervalSince(updatedDate) > staleInterval
+    }
+
+    var isDegraded: Bool {
+        state != "ready" || isStale
     }
 
     var effectiveTokenEstimates: [TokenEstimate] {
@@ -86,6 +124,24 @@ private struct ModelTokenDisplay: Identifiable {
     let estimated: Bool
 }
 
+private struct WindowPace {
+    let projectedPercent: Double
+    let exhaustionDate: Date?
+
+    var level: Int {
+        if projectedPercent >= 100 { return 2 }
+        if projectedPercent >= 85 { return 1 }
+        return 0
+    }
+
+    var summary: String {
+        if let exhaustionDate {
+            return "按当前速度 \(futureText(exhaustionDate)) 用尽"
+        }
+        return "预计周期末 \(Int(projectedPercent.rounded()))%"
+    }
+}
+
 private func parseISO8601(_ value: String?) -> Date? {
     guard let value else { return nil }
     let fractional = ISO8601DateFormatter()
@@ -101,44 +157,61 @@ private final class UsageStore: ObservableObject {
     @Published var isRefreshing = false
     @Published var launchAtLoginEnabled = false
     @Published var launchAtLoginMessage: String?
+    @Published var notificationsEnabled = false
+    @Published var notificationThreshold = 80
+    @Published var notificationMessage: String?
 
     private let endpoint = URL(string: "http://127.0.0.1:4317/api/usage")!
     private var refreshTimer: Timer?
+    private let defaults = UserDefaults.standard
+    private var deliveredNotificationCycles: Set<String> = []
+    private var pendingNotificationKeys: Set<String> = []
 
-    var hasStaleData: Bool {
-        errorMessage != nil || providers.contains(where: \.isStale)
+    var hasDegradedData: Bool {
+        errorMessage != nil || providers.contains(where: \.isDegraded)
     }
 
     var menuTitle: String {
         let summaries = providers
-            .compactMap { provider -> (UsageProvider, Double)? in
-                guard let percent = provider.primaryWindow?.usedPercent else { return nil }
-                return (provider, percent)
-            }
             .prefix(3)
-            .map { provider, percent in
-                "\(provider.shortName.uppercased()) \(Int(percent.rounded()))%"
+            .map { provider in
+                let value: String
+                if let percent = provider.primaryWindow?.usedPercent {
+                    value = "\(Int(percent.rounded()))%"
+                } else {
+                    value = provider.state == "ready" ? "—" : "!"
+                }
+                return "\(provider.shortName.uppercased()) \(value)"
             }
 
         let title = summaries.isEmpty ? "AI —" : summaries.joined(separator: " · ")
-        return hasStaleData ? "\(title) !" : title
+        return hasDegradedData ? "\(title) !" : title
     }
 
     var symbolName: String {
-        if hasStaleData { return "exclamationmark.triangle.fill" }
-        let highestUsage = providers
-            .flatMap(\.windows)
-            .compactMap(\.usedPercent)
-            .max()
-        if let highestUsage, highestUsage >= 85 {
-            return "exclamationmark.circle.fill"
-        }
-        return "chart.bar.fill"
+        hasDegradedData ? "exclamationmark.triangle.fill" : "chart.bar.fill"
     }
 
     init() {
+        notificationsEnabled = defaults.bool(
+            forKey: PreferenceKey.notificationsEnabled
+        )
+        let storedThreshold = defaults.integer(
+            forKey: PreferenceKey.notificationThreshold
+        )
+        notificationThreshold = notificationThresholdOptions.contains(storedThreshold)
+            ? storedThreshold
+            : 80
+        deliveredNotificationCycles = Set(
+            defaults.stringArray(
+                forKey: PreferenceKey.deliveredNotificationCycles
+            ) ?? []
+        )
         refreshLaunchAtLoginStatus()
-        Task { await refresh() }
+        Task {
+            await synchronizeNotificationAuthorization()
+            await refresh()
+        }
         refreshTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 await self?.refresh()
@@ -163,9 +236,17 @@ private final class UsageStore: ObservableObject {
             let payload = try JSONDecoder().decode(UsagePayload.self, from: data)
             providers = payload.providers
             lastUpdated = parseISO8601(payload.generatedAt) ?? Date()
-            errorMessage = nil
+            errorMessage = payload.skippedProviderCount > 0
+                ? "已忽略 \(payload.skippedProviderCount) 个格式不兼容的平台"
+                : nil
+            evaluateQuotaNotifications()
         } catch {
-            errorMessage = "本机采集器已断开，正在显示上次数据"
+            NSLog("Usage menu refresh failed: %@", String(describing: error))
+            if error is DecodingError {
+                errorMessage = "采集器数据格式不兼容，正在显示上次数据"
+            } else {
+                errorMessage = "本机采集器已断开，正在显示上次数据"
+            }
         }
     }
 
@@ -193,9 +274,161 @@ private final class UsageStore: ObservableObject {
         }
     }
 
+    func setNotificationsEnabled(_ enabled: Bool) async {
+        if !enabled {
+            notificationsEnabled = false
+            notificationMessage = nil
+            pendingNotificationKeys.removeAll()
+            defaults.set(false, forKey: PreferenceKey.notificationsEnabled)
+            return
+        }
+
+        do {
+            let granted = try await UNUserNotificationCenter.current()
+                .requestAuthorization(options: [.alert, .sound])
+            notificationsEnabled = granted
+            defaults.set(granted, forKey: PreferenceKey.notificationsEnabled)
+            notificationMessage = granted ? nil : "请在系统设置中允许通知"
+            if granted {
+                evaluateQuotaNotifications()
+            }
+        } catch {
+            notificationsEnabled = false
+            defaults.set(false, forKey: PreferenceKey.notificationsEnabled)
+            notificationMessage = "无法启用额度提醒"
+        }
+    }
+
+    func setNotificationThreshold(_ threshold: Int) {
+        guard notificationThresholdOptions.contains(threshold) else { return }
+        notificationThreshold = threshold
+        defaults.set(threshold, forKey: PreferenceKey.notificationThreshold)
+        evaluateQuotaNotifications()
+    }
+
     private func refreshLaunchAtLoginStatus() {
         let status = SMAppService.mainApp.status
         launchAtLoginEnabled = status == .enabled || status == .requiresApproval
+    }
+
+    private func synchronizeNotificationAuthorization() async {
+        guard defaults.bool(forKey: PreferenceKey.notificationsEnabled) else {
+            notificationsEnabled = false
+            return
+        }
+
+        let settings = await UNUserNotificationCenter.current().notificationSettings()
+        switch settings.authorizationStatus {
+        case .authorized, .provisional, .ephemeral:
+            notificationsEnabled = true
+            notificationMessage = nil
+        case .denied:
+            notificationsEnabled = false
+            notificationMessage = "系统通知权限已关闭"
+            defaults.set(false, forKey: PreferenceKey.notificationsEnabled)
+        case .notDetermined:
+            notificationsEnabled = false
+            defaults.set(false, forKey: PreferenceKey.notificationsEnabled)
+        @unknown default:
+            notificationsEnabled = false
+            defaults.set(false, forKey: PreferenceKey.notificationsEnabled)
+        }
+    }
+
+    private func evaluateQuotaNotifications() {
+        guard notificationsEnabled else { return }
+        let threshold = Double(notificationThreshold)
+        var keysChanged = false
+
+        for provider in providers where provider.state == "ready" && !provider.isStale {
+            for window in provider.windows {
+                guard let percent = window.usedPercent else { continue }
+                let prefix = "\(provider.id):\(window.id):\(notificationThreshold):"
+
+                if percent < threshold {
+                    let previousCount = deliveredNotificationCycles.count
+                    deliveredNotificationCycles = Set(
+                        deliveredNotificationCycles.filter {
+                            !$0.hasPrefix(prefix)
+                        }
+                    )
+                    keysChanged = keysChanged ||
+                        deliveredNotificationCycles.count != previousCount
+                    continue
+                }
+
+                let cycle = window.resetsAt ?? "until-below-threshold"
+                let key = "\(prefix)\(cycle)"
+                guard
+                    !deliveredNotificationCycles.contains(key),
+                    !pendingNotificationKeys.contains(key)
+                else {
+                    continue
+                }
+                pendingNotificationKeys.insert(key)
+                deliverQuotaNotification(
+                    provider: provider,
+                    window: window,
+                    percent: percent,
+                    key: key
+                )
+            }
+        }
+
+        if keysChanged {
+            persistDeliveredNotificationCycles()
+        }
+    }
+
+    private func deliverQuotaNotification(
+        provider: UsageProvider,
+        window: UsageWindow,
+        percent: Double,
+        key: String
+    ) {
+        let content = UNMutableNotificationContent()
+        content.title = "\(provider.name) 已用 \(Int(percent.rounded()))%"
+        var details = "\(window.label)额度达到 \(notificationThreshold)% 提醒线"
+        if let pace = paceForWindow(window), pace.level > 0 {
+            details += "，\(pace.summary)"
+        }
+        content.body = details
+        content.sound = .default
+
+        let request = UNNotificationRequest(
+            identifier: key,
+            content: content,
+            trigger: nil
+        )
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                try await UNUserNotificationCenter.current().add(request)
+                self.pendingNotificationKeys.remove(key)
+                self.deliveredNotificationCycles.insert(key)
+                self.persistDeliveredNotificationCycles()
+                self.notificationMessage = nil
+            } catch {
+                self.pendingNotificationKeys.remove(key)
+                self.notificationMessage = "额度提醒发送失败，将在下次刷新重试"
+                NSLog(
+                    "Usage menu notification failed: %@",
+                    String(describing: error)
+                )
+            }
+        }
+    }
+
+    private func persistDeliveredNotificationCycles() {
+        if deliveredNotificationCycles.count > 200 {
+            deliveredNotificationCycles = Set(
+                deliveredNotificationCycles.sorted().suffix(200)
+            )
+        }
+        defaults.set(
+            Array(deliveredNotificationCycles).sorted(),
+            forKey: PreferenceKey.deliveredNotificationCycles
+        )
     }
 }
 
@@ -208,7 +441,14 @@ private struct MenuBarPanel: View {
 
             if store.providers.isEmpty {
                 emptyState
+                    .frame(height: 220)
             } else {
+                ProviderSummaryStrip(providers: Array(store.providers.prefix(3)))
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 10)
+
+                Divider()
+
                 ScrollView {
                     LazyVStack(spacing: 10) {
                         ForEach(store.providers) { provider in
@@ -217,7 +457,8 @@ private struct MenuBarPanel: View {
                     }
                     .padding(12)
                 }
-                .frame(maxHeight: 560)
+                .frame(height: 430)
+                .scrollIndicators(.visible)
             }
 
             Divider()
@@ -232,8 +473,8 @@ private struct MenuBarPanel: View {
             ZStack {
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .fill(Color.green.opacity(0.12))
-                Image(systemName: store.hasStaleData ? "exclamationmark.triangle.fill" : "chart.bar.fill")
-                    .foregroundStyle(store.hasStaleData ? .orange : .green)
+                Image(systemName: store.hasDegradedData ? "exclamationmark.triangle.fill" : "chart.bar.fill")
+                    .foregroundStyle(store.hasDegradedData ? .orange : .green)
             }
             .frame(width: 36, height: 36)
 
@@ -283,9 +524,10 @@ private struct MenuBarPanel: View {
                 .foregroundStyle(.secondary)
             Text("还没有可显示的平台")
                 .font(.system(size: 12, weight: .medium))
-            Text("请先运行 npm run local")
+            Text(store.errorMessage ?? "请先运行 npm run local")
                 .font(.system(size: 10))
                 .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 34)
@@ -293,6 +535,38 @@ private struct MenuBarPanel: View {
 
     private var footer: some View {
         VStack(spacing: 8) {
+            HStack {
+                Toggle(
+                    "额度提醒",
+                    isOn: Binding(
+                        get: { store.notificationsEnabled },
+                        set: { enabled in
+                            Task { await store.setNotificationsEnabled(enabled) }
+                        }
+                    )
+                )
+                .toggleStyle(.switch)
+                .controlSize(.mini)
+
+                Spacer()
+
+                Picker(
+                    "提醒线",
+                    selection: Binding(
+                        get: { store.notificationThreshold },
+                        set: { store.setNotificationThreshold($0) }
+                    )
+                ) {
+                    ForEach(notificationThresholdOptions, id: \.self) { threshold in
+                        Text("\(threshold)%").tag(threshold)
+                    }
+                }
+                .pickerStyle(.menu)
+                .controlSize(.mini)
+                .disabled(!store.notificationsEnabled)
+                .frame(width: 112)
+            }
+
             HStack {
                 Toggle(
                     "登录时启动",
@@ -324,9 +598,53 @@ private struct MenuBarPanel: View {
                     .foregroundStyle(.orange)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
+
+            if let notificationMessage = store.notificationMessage {
+                Text(notificationMessage)
+                    .font(.system(size: 9))
+                    .foregroundStyle(.orange)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
         .font(.system(size: 11))
         .padding(12)
+    }
+}
+
+private struct ProviderSummaryStrip: View {
+    let providers: [UsageProvider]
+
+    var body: some View {
+        HStack(spacing: 8) {
+            ForEach(providers) { provider in
+                HStack(spacing: 7) {
+                    ProviderLogo(provider: provider, size: 26)
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack(spacing: 4) {
+                            Text(provider.shortName.uppercased())
+                                .font(.system(size: 9, weight: .semibold))
+                            Circle()
+                                .fill(providerHealthColor(provider))
+                                .frame(width: 5, height: 5)
+                        }
+                        Text(formatPercent(provider.primaryWindow?.usedPercent))
+                            .font(.system(size: 14, weight: .semibold, design: .rounded))
+                            .monospacedDigit()
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(8)
+                .background(
+                    Color.primary.opacity(0.04),
+                    in: RoundedRectangle(cornerRadius: 11, style: .continuous)
+                )
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel(
+                    "\(provider.name)，\(formatPercent(provider.primaryWindow?.usedPercent))"
+                )
+            }
+        }
     }
 }
 
@@ -408,7 +726,11 @@ private struct ProviderRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(provider.name)
                     .font(.system(size: 12, weight: .semibold))
-                Text(provider.plan ?? stateLabel)
+                Text(
+                    provider.state == "ready"
+                        ? (provider.plan ?? stateLabel)
+                        : stateLabel
+                )
                     .font(.system(size: 9))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -422,7 +744,11 @@ private struct ProviderRow: View {
                     .monospacedDigit()
                 Text(provider.updatedDate.map(freshnessText) ?? "更新时间未知")
                     .font(.system(size: 8))
-                    .foregroundStyle(provider.isStale ? .orange : .secondary)
+                    .foregroundStyle(
+                        provider.state != "ready"
+                            ? Color.red
+                            : provider.isStale ? Color.orange : Color.secondary
+                    )
             }
         }
     }
@@ -475,6 +801,15 @@ private struct WindowRow: View {
             }
             .font(.system(size: 8))
             .foregroundStyle(.secondary)
+
+            if let pace = paceForWindow(window) {
+                HStack(spacing: 4) {
+                    Image(systemName: pace.level > 0 ? "flame.fill" : "gauge.with.dots.needle.33percent")
+                    Text(pace.summary)
+                }
+                .font(.system(size: 8, weight: .medium))
+                .foregroundStyle(paceColor(pace.level))
+            }
         }
     }
 
@@ -516,6 +851,7 @@ private struct ModelTokenRow: View {
 
 private struct ProviderLogo: View {
     let provider: UsageProvider
+    var size: CGFloat = 32
 
     var body: some View {
         ZStack {
@@ -534,7 +870,7 @@ private struct ProviderLogo: View {
                     .foregroundStyle(Color(hex: provider.accent) ?? .green)
             }
         }
-        .frame(width: 32, height: 32)
+        .frame(width: size, height: size)
         .overlay {
             RoundedRectangle(cornerRadius: 9, style: .continuous)
                 .stroke(Color.primary.opacity(0.08), lineWidth: 1)
@@ -580,7 +916,7 @@ private func freshnessText(_ date: Date) -> String {
     if seconds < 60 { return "刚刚更新" }
     if seconds < 3_600 { return "\(Int(seconds / 60)) 分钟前更新" }
     if seconds < 86_400 { return "\(Int(seconds / 3_600)) 小时前更新" }
-    return date.formatted(date: .abbreviated, time: .shortened)
+    return chineseDateTime(date)
 }
 
 private func formatPercent(_ value: Double?) -> String {
@@ -595,7 +931,80 @@ private func resetText(_ value: String?) -> String {
     if date < Date() {
         return "等待刷新重置"
     }
-    return "重置 \(date.formatted(date: .abbreviated, time: .shortened))"
+    return "重置 \(chineseDateTime(date))"
+}
+
+private func paceForWindow(
+    _ window: UsageWindow,
+    now: Date = Date()
+) -> WindowPace? {
+    guard
+        let percent = window.usedPercent,
+        percent >= 0,
+        let duration = window.durationSeconds,
+        duration > 0,
+        let resetDate = parseISO8601(window.resetsAt)
+    else {
+        return nil
+    }
+
+    let startDate = resetDate.addingTimeInterval(-duration)
+    let elapsed = now.timeIntervalSince(startDate)
+    guard elapsed > max(60, duration * 0.005), elapsed < duration else {
+        return nil
+    }
+
+    let elapsedFraction = elapsed / duration
+    let projectedPercent = min(999, percent / elapsedFraction)
+    let exhaustionDate: Date?
+    if percent > 0 {
+        let secondsToFull = elapsed / (percent / 100)
+        let projectedDate = startDate.addingTimeInterval(secondsToFull)
+        exhaustionDate = projectedDate < resetDate && projectedDate > now
+            ? projectedDate
+            : nil
+    } else {
+        exhaustionDate = nil
+    }
+
+    return WindowPace(
+        projectedPercent: projectedPercent,
+        exhaustionDate: exhaustionDate
+    )
+}
+
+private func futureText(_ date: Date) -> String {
+    let seconds = date.timeIntervalSinceNow
+    if seconds < 3_600 {
+        return "\(max(1, Int(seconds / 60))) 分钟后"
+    }
+    if seconds < 86_400 {
+        let hours = seconds / 3_600
+        return "\(formatCompactNumber(hours)) 小时后"
+    }
+    return chineseDateTime(date)
+}
+
+private func chineseDateTime(_ date: Date) -> String {
+    let formatter = DateFormatter()
+    formatter.locale = Locale(identifier: "zh_CN")
+    formatter.dateStyle = .medium
+    formatter.timeStyle = .short
+    return formatter.string(from: date)
+}
+
+private func providerHealthColor(_ provider: UsageProvider) -> Color {
+    if provider.state != "ready" { return .red }
+    if provider.isStale { return .orange }
+    return .green
+}
+
+private func paceColor(_ level: Int) -> Color {
+    switch level {
+    case 2: return .red
+    case 1: return .orange
+    default: return .secondary
+    }
 }
 
 private func formatBalance(_ balance: UsageBalance) -> String {
@@ -663,16 +1072,96 @@ private extension Color {
     }
 }
 
+@MainActor
+private final class UsageMenuBarDelegate: NSObject, NSApplicationDelegate {
+    private var store: UsageStore?
+    private var statusItem: NSStatusItem?
+    private var popover: NSPopover?
+    private var statusUpdateCancellable: AnyCancellable?
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        let store = UsageStore()
+        let statusItemPositionKey =
+            "NSStatusItem Preferred Position AIUsageDashboardUsage"
+        if UserDefaults.standard.object(forKey: statusItemPositionKey) == nil {
+            // Tahoe may otherwise place a new variable-width item underneath
+            // the camera housing on a crowded MacBook menu bar. This is only
+            // a first-launch position; Command-dragging the item is preserved.
+            UserDefaults.standard.set(540, forKey: statusItemPositionKey)
+        }
+        let statusItem = NSStatusBar.system.statusItem(
+            withLength: NSStatusItem.variableLength
+        )
+        statusItem.autosaveName = "AIUsageDashboardUsage"
+        statusItem.isVisible = true
+        let popover = NSPopover()
+        popover.behavior = .transient
+        popover.animates = false
+        popover.contentSize = NSSize(width: 410, height: 680)
+        popover.contentViewController = NSHostingController(
+            rootView: MenuBarPanel(store: store)
+        )
+
+        if let button = statusItem.button {
+            button.target = self
+            button.action = #selector(togglePopover(_:))
+            button.sendAction(on: [.leftMouseUp])
+            button.font = .monospacedDigitSystemFont(
+                ofSize: 11,
+                weight: .medium
+            )
+        }
+
+        self.store = store
+        self.statusItem = statusItem
+        self.popover = popover
+        updateStatusItem()
+        statusUpdateCancellable = store.objectWillChange.sink { [weak self] _ in
+            DispatchQueue.main.async {
+                self?.updateStatusItem()
+            }
+        }
+    }
+
+    @objc
+    private func togglePopover(_ sender: Any?) {
+        guard
+            let button = statusItem?.button,
+            let popover
+        else {
+            return
+        }
+
+        if popover.isShown {
+            popover.performClose(sender)
+        } else {
+            popover.show(
+                relativeTo: button.bounds,
+                of: button,
+                preferredEdge: .minY
+            )
+        }
+    }
+
+    private func updateStatusItem() {
+        guard let store, let button = statusItem?.button else { return }
+        button.image = nil
+        button.imagePosition = .noImage
+        button.title = store.menuTitle
+        button.toolTip = "AI 用量：\(store.menuTitle)"
+        button.setAccessibilityLabel("AI 用量：\(store.menuTitle)")
+        statusItem?.length = NSStatusItem.variableLength
+    }
+}
+
 @main
 private struct UsageMenuBarApp: App {
-    @StateObject private var store = UsageStore()
+    @NSApplicationDelegateAdaptor(UsageMenuBarDelegate.self)
+    private var appDelegate
 
     var body: some Scene {
-        MenuBarExtra {
-            MenuBarPanel(store: store)
-        } label: {
-            Label(store.menuTitle, systemImage: store.symbolName)
+        Settings {
+            EmptyView()
         }
-        .menuBarExtraStyle(.window)
     }
 }

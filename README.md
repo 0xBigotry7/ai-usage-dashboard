@@ -144,6 +144,20 @@ For development, use `npm run menubar`. macOS 14 or newer is required.
 Move the built app to `/Applications` before using its **Launch at Login**
 switch.
 
+The local build is ad-hoc signed. It is suitable for development and personal
+installation, but it is not a notarized public release. The manual
+**macOS package proof** workflow builds the same credential-free artifact and
+publishes it only as a short-lived workflow artifact. See
+[macOS packaging, signing, and Homebrew](docs/macos-release.md) before
+distributing a release.
+
+The menu bar now keeps a three-provider summary visible, calculates a projected
+period-end pace only when a real duration and reset time are available, and can
+send deduplicated 70%, 80%, or 90% quota alerts after the user opts in. The
+pace and notification behavior was adapted from ideas in CodexBar; exact
+upstream sources and reuse decisions are recorded in the
+[CodexBar implementation review](docs/attribution.md#codexbar-implementation-review).
+
 ## External always-on display
 
 `/display` is a separate information surface, not a compressed copy of the
@@ -197,6 +211,7 @@ tests/                Normalization, estimation, security, and render tests
 
 - [Architecture and data flow](docs/architecture.md)
 - [External display and kiosk setup](docs/external-display.md)
+- [macOS packaging, signing, and Homebrew](docs/macos-release.md)
 - [Configuration and Cloudflare deployment](docs/configuration.md)
 - [Provider development](docs/provider-development.md)
 - [Security model and limitations](docs/security.md)

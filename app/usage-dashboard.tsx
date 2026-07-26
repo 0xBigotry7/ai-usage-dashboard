@@ -513,7 +513,6 @@ function ProviderCard({
   const peakWindow = getPeakWindow(provider);
   const stale = isProviderStale(provider);
   const hasQuota = primary?.usedPercent !== null && primary?.usedPercent !== undefined;
-  const hasWeeklyWindow = provider.windows.some((window) => window.id === "weekly");
 
   return (
     <article
@@ -567,8 +566,8 @@ function ProviderCard({
           <p>
             {fiveHour
               ? `5 小时窗口 · ${keyReset.estimated ? "约 " : ""}${formatResetClock(keyReset.resetsAt)}`
-              : provider.windows.length
-                ? "当前账户没有返回 5 小时窗口"
+              : primary
+                ? `${primary.label}窗口 · ${keyReset.estimated ? "约 " : ""}${formatResetClock(keyReset.resetsAt)}`
                 : "当前接口提供余额或模型用量，不提供配额窗口"}
           </p>
           {provider.balance ? (
@@ -597,12 +596,6 @@ function ProviderCard({
                   reset={resolveReset(provider.id, window, history)}
                 />
               ))}
-              {!fiveHour && hasWeeklyWindow ? (
-                <div className="missing-window">
-                  <span>5 小时</span>
-                  <p>平台未提供此窗口，不做本地估算</p>
-                </div>
-              ) : null}
             </div>
           ) : (
             <div className="metric-only-state">
@@ -1504,7 +1497,7 @@ export function UsageDashboard({
             官方 API、配额换算与本机日志分开呈现 · 不重复相加
           </p>
           <p>
-            Collector {data?.collector.version || "0.7.0"} · 自动刷新 60 秒
+            Collector {data?.collector.version || "0.8.0"} · 自动刷新 60 秒
           </p>
         </footer>
         </>

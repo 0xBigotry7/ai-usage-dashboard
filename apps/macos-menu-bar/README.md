@@ -7,15 +7,26 @@ credentials and does not query provider APIs directly.
 The menu bar label shows the primary quota percentage for up to three providers,
 for example `CX 74% · KM 48% · CL 13%`. A trailing `!` means that the collector
 is unavailable or at least one provider update is more than five minutes old.
+On first launch the app gives its native `NSStatusItem` a stable saved position
+so a crowded macOS 26 menu bar does not park it underneath a MacBook camera
+housing. You can still Command-drag the label to any position you prefer.
 
 Open the popover to see:
 
 - every quota window and reset time returned by each provider;
+- projected period-end usage and an estimated exhaustion time when reset and
+  duration data make a pace calculation possible;
 - provider-level data freshness and balances;
 - up to three model token totals, clearly marked as official API usage, local
   session-log estimates, or quota-percentage estimates;
 - real provider artwork loaded from `public/brands`;
+- optional 70%, 80%, or 90% quota notifications (80% by default), deduplicated
+  once per provider window and quota cycle;
 - a native **Launch at Login** switch powered by `SMAppService`.
+
+Notifications are disabled until the user turns on **Quota alerts**. Stale
+provider snapshots never trigger an alert, and a window without a reset time is
+eligible again only after its usage falls below the selected threshold.
 
 Run from source:
 
@@ -38,3 +49,6 @@ login-item registration can work for local builds. Keep the app in
 it under **System Settings › General › Login Items**.
 
 The application requires macOS 14 or newer.
+
+If the label is hidden, open **System Settings › Menu Bar › Allow in the Menu
+Bar** and enable **AI Usage Dashboard Menu Bar**.

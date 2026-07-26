@@ -23,6 +23,7 @@ const outputAppPath = join(
 const stagingRoot = await mkdtemp(
   join(tmpdir(), "ai-usage-dashboard-menubar-"),
 );
+const swiftScratchPath = join(stagingRoot, "swift-build");
 const appPath = join(stagingRoot, "AI Usage Dashboard Menu Bar.app");
 const contentsPath = join(appPath, "Contents");
 const executablePath = join(contentsPath, "MacOS", "UsageMenuBar");
@@ -38,7 +39,15 @@ if (!/^\d+(?:\.\d+){0,2}$/.test(version)) {
 
 execFileSync(
   "swift",
-  ["build", "-c", "release", "--package-path", packagePath],
+  [
+    "build",
+    "-c",
+    "release",
+    "--package-path",
+    packagePath,
+    "--scratch-path",
+    swiftScratchPath,
+  ],
   { cwd: root, stdio: "inherit" },
 );
 
@@ -51,6 +60,8 @@ const binPath = execFileSync(
     "--show-bin-path",
     "--package-path",
     packagePath,
+    "--scratch-path",
+    swiftScratchPath,
   ],
   { cwd: root, encoding: "utf8" },
 ).trim();
