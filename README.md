@@ -129,8 +129,9 @@ USAGE_HUB_CODEX_LOG_ESTIMATE=off npm run local
 
 The native companion reads the same loopback collector every 60 seconds. It
 shows the primary quota percentage for up to three providers directly in the
-menu bar. A trailing `!` warns that the collector is unavailable or provider
-data is stale. Its popover shows every returned quota window and reset time,
+menu bar. Provider health is stated inline: `旧` marks a stale snapshot and
+`异常` marks a provider error, instead of using an ambiguous trailing
+exclamation mark. Its popover shows every returned quota window and reset time,
 balances, freshness, and up to three available model token totals per provider.
 Official API totals, local-log observations, and quota-based estimates retain
 their distinct labels. It does not read or store provider credentials.
