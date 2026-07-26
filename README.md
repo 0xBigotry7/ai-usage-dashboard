@@ -135,19 +135,37 @@ balances, freshness, and up to three available model token totals per provider.
 Official API totals, local-log observations, and quota-based estimates retain
 their distinct labels. It does not read or store provider credentials.
 
+### Build and use it locally
+
+Building from source is the currently supported installation path. The
+repository does not publish a notarized `.app`, DMG, or Homebrew cask.
+Requirements are macOS 14 or newer, Node.js 22.13 or newer, and Xcode 16 or
+newer with Swift 6.
+
+First start the dashboard and loopback collector, and keep this terminal open:
+
+```bash
+npm ci
+npm run local
+```
+
+In a second terminal, build and launch the menu-bar app:
+
 ```bash
 npm run build:menubar
 open "dist/AI Usage Dashboard Menu Bar.app"
 ```
 
-For development, use `npm run menubar`. macOS 14 or newer is required.
-Move the built app to `/Applications` before using its **Launch at Login**
-switch.
+The app is only a local display client; it expects the collector to remain
+available at `127.0.0.1:4317`. For Swift development without assembling the
+standalone bundle, use `npm run menubar`. After testing the build, drag the
+`.app` from `dist/` to `/Applications` before enabling **Launch at Login**.
 
 The local build is ad-hoc signed. It is suitable for development and personal
-installation, but it is not a notarized public release. The manual
-**macOS package proof** workflow builds the same credential-free artifact and
-publishes it only as a short-lived workflow artifact. See
+installation on the machine that built it, but it is not a notarized public
+release. Do not redistribute it as though Apple had verified the publisher.
+The manual **macOS package proof** workflow builds the same credential-free
+artifact and publishes it only as a short-lived workflow artifact. See
 [macOS packaging, signing, and Homebrew](docs/macos-release.md) before
 distributing a release.
 

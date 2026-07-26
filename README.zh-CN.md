@@ -115,15 +115,33 @@ USAGE_HUB_CODEX_LOG_ESTIMATE=off npm run local
 3 个逐模型 Token。官方 API、本机日志和按配额换算的估算会继续使用不同标签，
 不会混成一个数字。顶栏程序不会直接访问平台，也不保存凭证。
 
+### 从源码本地构建使用
+
+目前正式支持的安装方式就是从源码本地构建；仓库暂不发布经过 Apple 公证的
+`.app`、DMG 或 Homebrew cask。需要 macOS 14 或更新版本、Node.js 22.13 或更新
+版本，以及包含 Swift 6 的 Xcode 16 或更新版本。
+
+先启动 Dashboard 和只监听本机的采集器，并保持这个终端窗口运行：
+
+```bash
+npm ci
+npm run local
+```
+
+另开一个终端构建并启动顶栏应用：
+
 ```bash
 npm run build:menubar
 open "dist/AI Usage Dashboard Menu Bar.app"
 ```
 
-开发模式可运行 `npm run menubar`，需要 macOS 14 或更新版本。
-使用“登录时启动”开关前，请先把构建出的应用移到 `/Applications`。
+顶栏应用只是本机显示客户端，运行时需要采集器持续监听
+`127.0.0.1:4317`。如果只想进行 Swift 开发而不组装独立 `.app`，可运行
+`npm run menubar`。确认构建可用后，再把 `dist/` 里的应用拖进
+`/Applications`，然后才能稳定使用“登录时启动”。
 
-本地构建使用 ad-hoc 签名，适合开发和个人安装，但不等于已经公证的公开发行版。
+本地构建使用 ad-hoc 签名，适合在完成构建的这台电脑上开发和个人安装，但不等于
+已经公证的公开发行版，也不应以“Apple 已验证开发者”的形式二次分发。
 手动运行 **macOS package proof** 工作流可以在不配置证书的情况下构建同样的
 临时测试包；它只会上传短期 workflow artifact，不会创建 GitHub Release。
 公开分发前请阅读
