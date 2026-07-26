@@ -29,11 +29,15 @@ test("build contains the dashboard, dedicated display, brands, and protected rou
   assert.match(dashboard, /AI Usage Dashboard/);
   assert.match(dashboard, /OpenAI Codex/);
   assert.match(dashboard, /Kimi Code/);
-  assert.match(dashboard, /Token 用量 · 多口径/);
-  assert.match(dashboard, /本周 Token · 跨平台汇总/);
-  assert.match(dashboard, /官方 API、已校准配额、本机日志依次/);
-  // The old unlabeled quota-derived headline must stay removed.
-  assert.doesNotMatch(dashboard, /配额换算<\/small>/);
+  assert.match(dashboard, /Token 用量 · 分层口径/);
+  assert.match(dashboard, /今日已记录 Token/);
+  assert.match(dashboard, /订阅周期已记录/);
+  assert.match(dashboard, /配额换算/);
+  assert.match(dashboard, /输入 \+ 输出 = 总量/);
+  assert.match(dashboard, /缓存输入与推理输出是子集，不重复相加/);
+  assert.match(dashboard, /暂无实测/);
+  assert.doesNotMatch(dashboard, /本周 Token · 跨平台汇总/);
+  assert.doesNotMatch(dashboard, /官方 API、已校准配额、本机日志依次/);
   assert.match(dashboard, /历史数据已截断，仅显示最近部分/);
   assert.match(dashboard, /Dashboard 显示设置/);
   assert.match(dashboard, /关注阈值/);

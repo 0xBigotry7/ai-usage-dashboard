@@ -15,6 +15,17 @@ const PROVIDER_STATES = new Set([
   "auth_error",
   "error",
 ]);
+const TOKEN_PERIOD_IDS = new Set([
+  "today",
+  "weekly_cycle",
+  "rolling_7d",
+  "weekly_quota",
+]);
+const TOKEN_SCOPES = new Set([
+  "local_device",
+  "account",
+  "calibrated_quota",
+]);
 
 function boundedString(value: unknown, maxLength: number) {
   return typeof value === "string" ? value.slice(0, maxLength) : null;
@@ -38,12 +49,23 @@ function boundedToken(value: unknown) {
   return number === null ? 0 : Math.floor(number);
 }
 
+function optionalBoundedToken(value: unknown) {
+  const number = boundedNumber(value, 0, Number.MAX_SAFE_INTEGER);
+  return number === null ? null : Math.floor(number);
+}
+
 function sanitizeTokenModel(value: unknown, basis: string) {
   if (!value || typeof value !== "object") return null;
   const input = value as Record<string, unknown>;
   const id = boundedString(input.id, 80);
   const label = boundedString(input.label, 60);
   const windowId = boundedString(input.windowId, 40);
+  const inputTokens = optionalBoundedToken(input.inputTokens);
+  const outputTokens = optionalBoundedToken(input.outputTokens);
+  const reasoningOutputTokens = optionalBoundedToken(
+    input.reasoningOutputTokens,
+  );
+  const cachedInputTokens = optionalBoundedToken(input.cachedInputTokens);
   if (
     !id ||
     !label ||
@@ -65,11 +87,22 @@ function sanitizeTokenModel(value: unknown, basis: string) {
         }
       : {}),
     estimatedTokens: boundedToken(input.estimatedTokens),
+    ...(basis === "session_logs" || basis === "api_usage"
+      ? {
+          ...(inputTokens !== null ? { inputTokens } : {}),
+          ...(outputTokens !== null ? { outputTokens } : {}),
+          ...(reasoningOutputTokens !== null
+            ? { reasoningOutputTokens }
+            : {}),
+        }
+      : {}),
     ...(basis === "api_usage"
       ? { requestCount: boundedToken(input.requestCount) }
       : {}),
     ...(basis === "session_logs"
-      ? { cachedInputTokens: boundedToken(input.cachedInputTokens) }
+      ? {
+          ...(cachedInputTokens !== null ? { cachedInputTokens } : {}),
+        }
       : {}),
     countedInTotal: input.countedInTotal === true,
   };
@@ -79,6 +112,14 @@ function sanitizeTokenUsage(value: unknown) {
   if (!value || typeof value !== "object") return null;
   const input = value as Record<string, unknown>;
   const basis = boundedString(input.basis, 40);
+  const rawPeriodId = boundedString(input.periodId, 40);
+  const rawScope = boundedString(input.scope, 40);
+  const inputTokens = optionalBoundedToken(input.inputTokens);
+  const outputTokens = optionalBoundedToken(input.outputTokens);
+  const reasoningOutputTokens = optionalBoundedToken(
+    input.reasoningOutputTokens,
+  );
+  const cachedInputTokens = optionalBoundedToken(input.cachedInputTokens);
   if (
     basis !== "quota_percentage" &&
     basis !== "session_logs" &&
@@ -95,6 +136,14 @@ function sanitizeTokenUsage(value: unknown) {
   if (basis === "quota_percentage") {
     return {
       basis,
+      periodId:
+        rawPeriodId && TOKEN_PERIOD_IDS.has(rawPeriodId)
+          ? rawPeriodId
+          : "weekly_quota",
+      scope:
+        rawScope && TOKEN_SCOPES.has(rawScope)
+          ? rawScope
+          : "calibrated_quota",
       estimated: true,
       totalTokens: boundedToken(input.totalTokens),
       capacityTokens: boundedToken(input.capacityTokens),
@@ -109,8 +158,17 @@ function sanitizeTokenUsage(value: unknown) {
   if (basis === "api_usage") {
     return {
       basis,
+      periodId:
+        rawPeriodId && TOKEN_PERIOD_IDS.has(rawPeriodId)
+          ? rawPeriodId
+          : "rolling_7d",
+      scope:
+        rawScope && TOKEN_SCOPES.has(rawScope) ? rawScope : "account",
       estimated: false,
       totalTokens: boundedToken(input.totalTokens),
+      ...(inputTokens !== null ? { inputTokens } : {}),
+      ...(outputTokens !== null ? { outputTokens } : {}),
+      ...(reasoningOutputTokens !== null ? { reasoningOutputTokens } : {}),
       periodSeconds:
         boundedNumber(input.periodSeconds, 60, 31_536_000) || 604_800,
       requestCount: boundedNumber(input.requestCount, 0, 1_000_000_000) || 0,
@@ -122,9 +180,18 @@ function sanitizeTokenUsage(value: unknown) {
   }
   return {
     basis,
-    estimated: true,
+    periodId:
+      rawPeriodId && TOKEN_PERIOD_IDS.has(rawPeriodId)
+        ? rawPeriodId
+        : "weekly_cycle",
+    scope:
+      rawScope && TOKEN_SCOPES.has(rawScope) ? rawScope : "local_device",
+    estimated: input.estimated === true,
     totalTokens: boundedToken(input.totalTokens),
-    cachedInputTokens: boundedToken(input.cachedInputTokens),
+    ...(inputTokens !== null ? { inputTokens } : {}),
+    ...(cachedInputTokens !== null ? { cachedInputTokens } : {}),
+    ...(outputTokens !== null ? { outputTokens } : {}),
+    ...(reasoningOutputTokens !== null ? { reasoningOutputTokens } : {}),
     periodSeconds: boundedNumber(input.periodSeconds, 60, 31_536_000) || 604_800,
     periodStartAt: safeIso(input.periodStartAt),
     sessionCount: boundedNumber(input.sessionCount, 0, 1_000_000) || 0,

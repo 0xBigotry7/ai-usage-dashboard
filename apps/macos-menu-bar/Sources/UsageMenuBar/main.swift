@@ -110,8 +110,14 @@ private struct UsageBalance: Decodable {
 
 private struct TokenEstimate: Decodable {
     let basis: String
+    let periodId: String?
+    let scope: String?
     let estimated: Bool?
     let totalTokens: Double?
+    let inputTokens: Double?
+    let cachedInputTokens: Double?
+    let outputTokens: Double?
+    let reasoningOutputTokens: Double?
     let periodSeconds: Double?
     let models: [ModelTokenUsage]?
 }
@@ -120,7 +126,10 @@ private struct ModelTokenUsage: Decodable {
     let id: String
     let label: String
     let estimatedTokens: Double?
+    let inputTokens: Double?
     let cachedInputTokens: Double?
+    let outputTokens: Double?
+    let reasoningOutputTokens: Double?
     let requestCount: Double?
 }
 
@@ -129,6 +138,7 @@ private struct ModelTokenDisplay: Identifiable {
     let label: String
     let tokens: Double
     let basis: String
+    let periodId: String?
     let estimated: Bool
     let cachedInputTokens: Double?
 }
@@ -742,14 +752,25 @@ private struct ProviderRow: View {
         Color(hex: provider.accent) ?? .green
     }
 
-    // Only the preferred basis feeds the top-3 list so one model never
-    // appears twice under two different accounting bases. Priority matches
-    // the web dashboard: api_usage > quota_percentage > session_logs.
+    // Prefer today's observed usage over a calibrated quota conversion.
+    // Quota pressure remains visible in the window meters above.
     private var preferredTokenEstimate: TokenEstimate? {
+        if let tokenUsage = provider.tokenUsage {
+            return tokenUsage
+        }
         let estimates = provider.effectiveTokenEstimates
-        return estimates.first(where: { $0.basis == "api_usage" })
-            ?? estimates.first(where: { $0.basis == "quota_percentage" })
+        return estimates.first(where: {
+            $0.basis == "session_logs" && $0.periodId == "today"
+        })
+            ?? estimates.first(where: {
+                $0.basis == "api_usage" && $0.periodId == "today"
+            })
+            ?? estimates.first(where: { $0.basis == "api_usage" })
+            ?? estimates.first(where: {
+                $0.basis == "session_logs" && $0.periodId == "weekly_cycle"
+            })
             ?? estimates.first(where: { $0.basis == "session_logs" })
+            ?? estimates.first(where: { $0.basis == "quota_percentage" })
     }
 
     private var modelTokens: [ModelTokenDisplay] {
@@ -761,6 +782,7 @@ private struct ProviderRow: View {
                 label: model.label,
                 tokens: tokens,
                 basis: usage.basis,
+                periodId: usage.periodId,
                 estimated: usage.estimated ?? (usage.basis != "api_usage"),
                 cachedInputTokens: model.cachedInputTokens
             )
@@ -804,7 +826,31 @@ private struct ProviderRow: View {
                 Divider()
                     .opacity(0.55)
                 VStack(alignment: .leading, spacing: 7) {
-                    Text("模型 TOKEN")
+                    if let usage = preferredTokenEstimate,
+                       usage.periodId == "today",
+                       let total = usage.totalTokens {
+                        HStack {
+                            Text("今日实际 TOKEN")
+                            Spacer()
+                            Text(formatTokens(total))
+                                .font(.system(size: 10, weight: .semibold, design: .rounded))
+                                .monospacedDigit()
+                        }
+                        .font(.system(size: 8, weight: .semibold))
+
+                        if let input = usage.inputTokens,
+                           let output = usage.outputTokens {
+                            Text("输入 \(formatTokens(input)) + 输出 \(formatTokens(output))")
+                                .font(.system(size: 8))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    Text(
+                        preferredTokenEstimate?.periodId == "today"
+                            ? "今日模型 TOKEN"
+                            : "模型 TOKEN"
+                    )
                         .font(.system(size: 8, weight: .semibold))
                         .tracking(0.7)
                         .foregroundStyle(.tertiary)
@@ -945,7 +991,11 @@ private struct ModelTokenRow: View {
 
     var body: some View {
         HStack(spacing: 7) {
-            Text(basisLabel(model.basis))
+            Text(
+                model.periodId == "today"
+                    ? "今日·本机"
+                    : basisLabel(model.basis)
+            )
                 .font(.system(size: 7, weight: .semibold))
                 .foregroundStyle(basisColor(model.basis))
                 .padding(.horizontal, 5)

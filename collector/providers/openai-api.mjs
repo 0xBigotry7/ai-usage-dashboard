@@ -25,6 +25,8 @@ export function normalizeOpenAIAdminUsage(
 ) {
   const byModel = new Map();
   let totalTokens = 0;
+  let totalInputTokens = 0;
+  let totalOutputTokens = 0;
   let requestCount = 0;
 
   for (const bucket of payload?.data || []) {
@@ -36,11 +38,20 @@ export function normalizeOpenAIAdminUsage(
       const tokens = inputTokens + outputTokens;
       const requests = safeCount(result?.num_model_requests);
       const model = String(result?.model || "unattributed").slice(0, 80);
-      const current = byModel.get(model) || { tokens: 0, requests: 0 };
+      const current = byModel.get(model) || {
+        tokens: 0,
+        inputTokens: 0,
+        outputTokens: 0,
+        requests: 0,
+      };
       current.tokens += tokens;
+      current.inputTokens += inputTokens;
+      current.outputTokens += outputTokens;
       current.requests += requests;
       byModel.set(model, current);
       totalTokens += tokens;
+      totalInputTokens += inputTokens;
+      totalOutputTokens += outputTokens;
       requestCount += requests;
     }
   }
@@ -49,6 +60,8 @@ export function normalizeOpenAIAdminUsage(
     id,
     label: id === "unattributed" ? "未归因模型" : id,
     estimatedTokens: usage.tokens,
+    inputTokens: usage.inputTokens,
+    outputTokens: usage.outputTokens,
     requestCount: usage.requests,
     countedInTotal: true,
   })).sort((left, right) => right.estimatedTokens - left.estimatedTokens);
@@ -57,8 +70,12 @@ export function normalizeOpenAIAdminUsage(
     models.length > 0
       ? {
           basis: "api_usage",
+          periodId: "rolling_7d",
+          scope: "account",
           estimated: false,
           totalTokens,
+          inputTokens: totalInputTokens,
+          outputTokens: totalOutputTokens,
           periodSeconds: PERIOD_SECONDS,
           requestCount,
           models,

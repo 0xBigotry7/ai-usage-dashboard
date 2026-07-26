@@ -34,9 +34,11 @@ Log in with the official Codex CLI. The adapter reads the existing
 The local Token estimate scans `~/.codex/sessions/**/*.jsonl`, but parses only
 `token_count`, `turn_context` model metadata, and the `session_meta` IDs and
 relationship fields needed for fork/resume deduplication. The counting window
-is aligned with the subscription quota cycle embedded in the log events,
-falling back to the past seven days; resumed or forked sessions are
-deduplicated.
+is reported twice: once from local midnight and once for the subscription quota
+cycle embedded in the log events (falling back to the trailing seven days).
+Replayed ancestor prefixes in resumed or forked rollouts are removed before
+novel child turns are counted. Input and output form the total; cached input and
+reasoning output are retained only as non-additive breakdowns.
 Disable it with:
 
 ```bash

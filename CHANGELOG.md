@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-07-26
+
+### Added
+
+- Codex session logs now expose separate local-day and subscription-cycle
+  records with input, output, cached-input, reasoning-output, session, and
+  per-model breakdowns.
+- The dashboard presents three non-additive Token layers: today recorded,
+  subscription-cycle recorded, and calibrated quota conversion.
+- The macOS popover shows today's observed total and its input/output
+  composition before the model breakdown.
+
+### Changed
+
+- Observed Codex usage is preferred over a quota-capacity conversion in the
+  dashboard and macOS companion. The collector remains the canonical source of
+  the preferred method.
+- OpenAI Organization Usage retains input and output totals for each model and
+  labels its range as account-level rolling seven-day usage.
+- The hosted snapshot allowlist preserves token period, scope, and optional
+  component fields without inventing zero-valued breakdowns for older clients.
+
+### Fixed
+
+- Forked or resumed Codex rollouts that replay ancestor counters with rewritten
+  timestamps no longer multiply the parent's usage. The final replay state is
+  retained as a zero-contribution delta baseline so gaps before the first novel
+  child observation are not lost.
+- Sibling rollouts sharing a missing ancestor deduplicate their exact common
+  prefix, and incomplete ancestry is marked as an estimate.
+- Cached input and reasoning output are emitted only when they satisfy their
+  input/output subset invariants; neither is added to the total again.
+- Reporting windows now exclude token events after the requested cutoff.
+
 ## [0.8.0] - 2026-07-26
 
 ### Added
@@ -70,5 +104,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   receipt time, so a pusher with a skewed clock cannot write history rows
   dated in the future.
 
-[Unreleased]: https://github.com/0xBigotry7/ai-usage-dashboard/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/0xBigotry7/ai-usage-dashboard/compare/v0.8.1...HEAD
+[0.8.1]: https://github.com/0xBigotry7/ai-usage-dashboard/releases/tag/v0.8.1
 [0.8.0]: https://github.com/0xBigotry7/ai-usage-dashboard/releases/tag/v0.8.0

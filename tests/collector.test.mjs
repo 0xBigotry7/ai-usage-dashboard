@@ -366,9 +366,14 @@ test("remote snapshot whitelist strips credentials and local host details", () =
         tokenEstimates: [
           {
             basis: "session_logs",
-            estimated: true,
+            periodId: "today",
+            scope: "local_device",
+            estimated: false,
             totalTokens: 345_000,
+            inputTokens: 330_000,
             cachedInputTokens: 120_500,
+            outputTokens: 15_000,
+            reasoningOutputTokens: 4_500,
             periodSeconds: 604_800,
             periodStartAt: "2026-07-18T01:00:00.000Z",
             sessionCount: 8,
@@ -377,7 +382,10 @@ test("remote snapshot whitelist strips credentials and local host details", () =
                 id: "codex-log-gpt-example",
                 label: "gpt-example",
                 estimatedTokens: 345_000,
+                inputTokens: 330_000,
                 cachedInputTokens: 120_500,
+                outputTokens: 15_000,
+                reasoningOutputTokens: 4_500,
                 countedInTotal: true,
                 rawEvent: "must-not-leave-the-mac",
               },
@@ -387,8 +395,12 @@ test("remote snapshot whitelist strips credentials and local host details", () =
           },
           {
             basis: "api_usage",
+            periodId: "rolling_7d",
+            scope: "account",
             estimated: false,
             totalTokens: 98_000,
+            inputTokens: 90_000,
+            outputTokens: 8_000,
             periodSeconds: 604_800,
             periodStartAt: "2026-07-18T01:00:00.000Z",
             cachedInputTokens: 30_000,
@@ -398,6 +410,8 @@ test("remote snapshot whitelist strips credentials and local host details", () =
                 id: "gpt-example",
                 label: "gpt-example",
                 estimatedTokens: 98_000,
+                inputTokens: 90_000,
+                outputTokens: 8_000,
                 requestCount: 17,
                 countedInTotal: true,
                 rawRequestId: "must-not-leave-the-mac",
@@ -423,6 +437,15 @@ test("remote snapshot whitelist strips credentials and local host details", () =
     "session_logs",
   );
   assert.equal(snapshot.providers[0].tokenEstimates[0].sessionCount, 8);
+  assert.equal(snapshot.providers[0].tokenEstimates[0].periodId, "today");
+  assert.equal(snapshot.providers[0].tokenEstimates[0].scope, "local_device");
+  assert.equal(snapshot.providers[0].tokenEstimates[0].estimated, false);
+  assert.equal(snapshot.providers[0].tokenEstimates[0].inputTokens, 330_000);
+  assert.equal(snapshot.providers[0].tokenEstimates[0].outputTokens, 15_000);
+  assert.equal(
+    snapshot.providers[0].tokenEstimates[0].reasoningOutputTokens,
+    4_500,
+  );
   assert.equal(
     snapshot.providers[0].tokenEstimates[0].cachedInputTokens,
     120_500,
@@ -435,8 +458,20 @@ test("remote snapshot whitelist strips credentials and local host details", () =
     snapshot.providers[0].tokenEstimates[0].models[0].cachedInputTokens,
     120_500,
   );
+  assert.equal(
+    snapshot.providers[0].tokenEstimates[0].models[0].inputTokens,
+    330_000,
+  );
+  assert.equal(
+    snapshot.providers[0].tokenEstimates[0].models[0].outputTokens,
+    15_000,
+  );
   assert.equal(snapshot.providers[0].tokenEstimates[1].basis, "api_usage");
+  assert.equal(snapshot.providers[0].tokenEstimates[1].periodId, "rolling_7d");
+  assert.equal(snapshot.providers[0].tokenEstimates[1].scope, "account");
   assert.equal(snapshot.providers[0].tokenEstimates[1].estimated, false);
+  assert.equal(snapshot.providers[0].tokenEstimates[1].inputTokens, 90_000);
+  assert.equal(snapshot.providers[0].tokenEstimates[1].outputTokens, 8_000);
   assert.equal(snapshot.providers[0].tokenEstimates[1].requestCount, 17);
   // session_logs-only fields stay out of the api_usage branch entirely.
   assert.equal(
@@ -462,6 +497,8 @@ test("remote snapshot bounds session_logs cached-token and period fields", () =>
         tokenEstimates: [
           {
             basis: "session_logs",
+            periodId: "not-a-period",
+            scope: "not-a-scope",
             estimated: true,
             totalTokens: 100,
             cachedInputTokens: "not-a-number",
@@ -484,9 +521,51 @@ test("remote snapshot bounds session_logs cached-token and period fields", () =>
   });
 
   const estimate = snapshot.providers[0].tokenEstimates[0];
-  assert.equal(estimate.cachedInputTokens, 0);
+  assert.equal(estimate.cachedInputTokens, undefined);
   assert.equal(estimate.periodStartAt, null);
+  assert.equal(estimate.periodId, "weekly_cycle");
+  assert.equal(estimate.scope, "local_device");
   assert.equal(estimate.models[0].cachedInputTokens, 0);
+});
+
+test("remote snapshot does not invent zero-valued token breakdowns", () => {
+  const snapshot = sanitizeRemoteSnapshot({
+    providers: [
+      {
+        id: "codex",
+        name: "OpenAI Codex",
+        state: "ready",
+        updatedAt: "2026-07-26T12:00:00.000Z",
+        windows: [],
+        tokenEstimates: [
+          {
+            basis: "session_logs",
+            periodId: "weekly_cycle",
+            scope: "local_device",
+            estimated: true,
+            totalTokens: 123_456,
+            models: [
+              {
+                id: "codex-log-gpt-example",
+                label: "gpt-example",
+                estimatedTokens: 123_456,
+                countedInTotal: true,
+              },
+            ],
+            assumption: "Legacy total-only record.",
+          },
+        ],
+      },
+    ],
+  });
+
+  const estimate = snapshot.providers[0].tokenEstimates[0];
+  assert.equal(estimate.totalTokens, 123_456);
+  assert.equal("inputTokens" in estimate, false);
+  assert.equal("outputTokens" in estimate, false);
+  assert.equal("cachedInputTokens" in estimate, false);
+  assert.equal("inputTokens" in estimate.models[0], false);
+  assert.equal("outputTokens" in estimate.models[0], false);
 });
 
 test("merges independently pushed provider rows without exposing legacy payloads", () => {
@@ -542,7 +621,7 @@ test("merges independently pushed provider rows without exposing legacy payloads
     merged.providers.map((provider) => provider.id),
     ["codex", "example-ai"],
   );
-  assert.equal(merged.collector.version, "0.8.0");
+  assert.equal(merged.collector.version, "0.8.1");
   assert.equal(merged.collector.syncMode, "multi-host-sanitized-push");
   assert.doesNotMatch(JSON.stringify(merged), /must-not-appear|accessToken/);
 });

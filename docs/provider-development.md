@@ -66,11 +66,21 @@ Use `api_usage` for exact tokens returned by a documented usage endpoint; set
 `estimated: false` and include `requestCount` when available. Keep methods
 separate in `tokenEstimates[]`; do not add overlapping scopes.
 
+Every new token method should declare a stable `periodId` and `scope`. Current
+values are `today`, `weekly_cycle`, `rolling_7d`, and `weekly_quota`, with
+`local_device`, `account`, or `calibrated_quota` scope. When the provider
+supplies a breakdown, maintain `totalTokens = inputTokens + outputTokens`;
+cached input and reasoning output are subsets, not additional totals.
+
 ```js
 {
   basis: "api_usage",
+  periodId: "rolling_7d",
+  scope: "account",
   estimated: false,
   totalTokens: 123456,
+  inputTokens: 120000,
+  outputTokens: 3456,
   periodSeconds: 604800,
   requestCount: 42,
   models: [

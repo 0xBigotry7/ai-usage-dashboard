@@ -10,7 +10,7 @@ import {
   toIsoTime,
 } from "../shared.mjs";
 import { estimateWeeklyQuotaTokens } from "../quota-estimate.mjs";
-import { estimateCodexSessionLogTokens } from "../session-log-estimate.mjs";
+import { estimateCodexSessionLogTokenEstimates } from "../session-log-estimate.mjs";
 
 const CODEX = {
   id: "codex",
@@ -83,9 +83,9 @@ export async function collectCodexUsage(env = process.env) {
   const codexHome = env.CODEX_HOME || join(homedir(), ".codex");
   const authPath = join(codexHome, "auth.json");
   const updatedAt = new Date().toISOString();
-  let logEstimate = null;
+  let logEstimates = [];
   try {
-    logEstimate = await estimateCodexSessionLogTokens(env);
+    logEstimates = await estimateCodexSessionLogTokenEstimates(env);
   } catch {
     // Quota collection should continue if local logs are unavailable.
   }
@@ -114,8 +114,10 @@ export async function collectCodexUsage(env = process.env) {
       label: "Codex 综合订阅",
       capacityTokens: env.USAGE_HUB_CODEX_WEEKLY_TOKEN_CAPACITY,
     });
-    provider.tokenUsage = quotaEstimate;
-    provider.tokenEstimates = [quotaEstimate, logEstimate].filter(Boolean);
+    provider.tokenUsage =
+      logEstimates.find((estimate) => estimate.periodId === "today") ||
+      quotaEstimate;
+    provider.tokenEstimates = [...logEstimates, quotaEstimate].filter(Boolean);
     return provider;
   } catch (error) {
     if (error?.code === "ENOENT") {
@@ -123,8 +125,11 @@ export async function collectCodexUsage(env = process.env) {
     }
     return {
       ...providerError(CODEX, error, "本机 Codex OAuth", updatedAt),
-      tokenUsage: null,
-      tokenEstimates: logEstimate ? [logEstimate] : [],
+      tokenUsage:
+        logEstimates.find((estimate) => estimate.periodId === "today") ||
+        logEstimates[0] ||
+        null,
+      tokenEstimates: logEstimates,
     };
   }
 }

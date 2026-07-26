@@ -50,12 +50,16 @@ Source: [Lobe Icons license](https://github.com/lobehub/lobe-icons/blob/master/L
 
 [CodexBar](https://github.com/steipete/CodexBar) informed interface and
 architecture decisions around menu-bar information density, provider
-separation, warning thresholds, and refresh behavior. Version 0.8.0 includes
+separation, warning thresholds, and refresh behavior. Version 0.8.0 introduced
 small, normalized-schema adaptations of the pace projection and quota-alert
 state behavior, plus a focused adaptation of CodexBar's native status-item
-placement approach for macOS 26. Its rollout-lineage scanner also informed the
-local estimator's use of explicit fork metadata before heuristic fallback. No
-complete CodexBar source file or provider parser is vendored.
+placement approach for macOS 26. Version 0.8.1 adds original local accounting
+informed by its rollout-lineage scanner and daily cost views: explicit fork
+metadata, ancestor replay detection, separation of observed “today” tokens from
+quota pressure, and input/output/cache breakdowns. The normalized schema,
+JavaScript parser, replay matcher, React UI, and Swift rows were implemented for
+this project; no complete CodexBar source file, provider parser, daily report,
+or pricing implementation is vendored.
 
 The detailed implementation review used
 [commit `cc8da27cec92029a6435bfee4a703a719290234e`](https://github.com/steipete/CodexBar/tree/cc8da27cec92029a6435bfee4a703a719290234e).

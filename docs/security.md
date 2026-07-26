@@ -27,11 +27,14 @@ The Codex log estimator reads only lines containing `token_count`,
 `turn_context`, or `session_meta`. It extracts numeric cumulative token
 counters, a bounded model label, and only the rollout IDs/relationship fields
 needed to recognize inherited counters. It does not include raw events in API
-responses, SQLite, D1, or logs. Counting follows counter deltas per session
-file, deduplicates resumed or forked sessions that inherit a parent counter,
-and aligns the window with the subscription quota cycle embedded in the events
-(falling back to the past seven days). Totals include cached input reads,
-broken out separately as `cachedInputTokens`.
+responses, SQLite, D1, or logs. Counting follows counter deltas per rollout.
+When a fork or resumed rollout replays an ancestor's cumulative states with new
+timestamps, the matching ancestor prefix is removed before novel child turns
+are counted. The estimator emits both a local-day range and a subscription-cycle
+range; the latter aligns with the weekly window embedded in events and falls
+back to the trailing seven days. `totalTokens` equals input plus output when
+those source counters exist. Cached input and reasoning output are exposed as
+subsets and are not added again.
 
 This is a data-minimization property, not a filesystem sandbox: the local
 process still has the permissions of the user who starts it. Disable the scan
@@ -84,13 +87,13 @@ regional availability. This project does not bypass regional restrictions.
 ## Estimate limitations
 
 Quota conversion appears only after the user configures a calibration capacity;
-there is no default, and the value is not an official limit. Local log
-estimates previously double-counted resumed or forked sessions and could
-undercount when an event was lost between samples; both are corrected by
-counter-delta accounting with inherited-counter detection. Local logs can
-still be incomplete across devices, deleted sessions, or nested agent work.
-Neither method is an invoice, subscription entitlement, compliance record, or
-safe spending control.
+there is no default, and the value is not an official limit. Session-log totals
+are exact for the numeric events that remain on this machine, but they are not
+an account-wide bill: other devices, deleted sessions, missing ancestors, or
+events the CLI never wrote can make them incomplete. The ancestry matcher
+handles known fork/resume replay patterns but intentionally does not guess
+across unrelated rollouts. Neither method is an invoice, subscription
+entitlement, compliance record, or safe spending control.
 
 ## Reporting a vulnerability
 

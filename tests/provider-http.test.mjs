@@ -70,7 +70,13 @@ test("openai usage totals do not double-count the audio token subsets", async ()
     });
     assert.equal(result.state, "ready");
     assert.equal(result.tokenUsage.totalTokens, 1_200);
+    assert.equal(result.tokenUsage.inputTokens, 1_000);
+    assert.equal(result.tokenUsage.outputTokens, 200);
+    assert.equal(result.tokenUsage.periodId, "rolling_7d");
+    assert.equal(result.tokenUsage.scope, "account");
     assert.equal(result.tokenUsage.models[0].estimatedTokens, 1_200);
+    assert.equal(result.tokenUsage.models[0].inputTokens, 1_000);
+    assert.equal(result.tokenUsage.models[0].outputTokens, 200);
   } finally {
     mock.restore();
   }

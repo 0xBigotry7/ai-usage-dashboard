@@ -4,6 +4,17 @@ The project is intentionally capability-led. Adding a provider is valuable only
 when its data source is trustworthy and it adds a useful signal. A long list of
 logos backed by fragile scraping is not a product goal.
 
+## Shipped in 0.8.1
+
+- Separate “today recorded,” “subscription-cycle recorded,” and
+  “quota conversion” layers in the web dashboard.
+- Codex input/output, cache/reasoning subsets, session counts, and per-model
+  totals from local `token_count` events.
+- Ancestor-prefix replay removal for fork/resume rollouts, including retained
+  delta baselines and shared-prefix handling when sibling ancestors are missing.
+- Today's observed Token total and input/output composition in the macOS
+  popover.
+
 ## Shipped in 0.8.0
 
 - Native AppKit status item that keeps the first three providers visible in the

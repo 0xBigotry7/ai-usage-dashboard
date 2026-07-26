@@ -24,13 +24,18 @@ type ModelTokenUsage = {
   usedPercent?: number;
   capacityTokens?: number;
   estimatedTokens: number;
+  inputTokens?: number;
   cachedInputTokens?: number;
+  outputTokens?: number;
+  reasoningOutputTokens?: number;
   requestCount?: number;
   countedInTotal: boolean;
 };
 
 type TokenUsage = {
   basis: "quota_percentage" | "session_logs" | "api_usage";
+  periodId?: "today" | "weekly_cycle" | "rolling_7d" | "weekly_quota";
+  scope?: "local_device" | "account" | "calibrated_quota";
   estimated: boolean;
   totalTokens: number;
   capacityTokens?: number;
@@ -39,7 +44,10 @@ type TokenUsage = {
   periodSeconds?: number;
   periodStartAt?: string | null;
   sessionCount?: number;
+  inputTokens?: number;
   cachedInputTokens?: number;
+  outputTokens?: number;
+  reasoningOutputTokens?: number;
   requestCount?: number;
   models: ModelTokenUsage[];
   assumption: string;
@@ -248,6 +256,34 @@ function tokenBasisLabel(basis: TokenUsage["basis"]) {
   return "本机 CLI 日志";
 }
 
+function tokenPeriodLabel(usage: TokenUsage) {
+  if (usage.periodId === "today") return "今日";
+  if (usage.periodId === "weekly_cycle") return "订阅周期";
+  if (usage.periodId === "weekly_quota") return "本周配额";
+  if (usage.periodId === "rolling_7d") return "过去 7 天";
+  return usage.basis === "quota_percentage" ? "本周配额" : "统计周期";
+}
+
+function tokenScopeLabel(usage: TokenUsage) {
+  if (usage.scope === "account" || usage.basis === "api_usage") return "账户级";
+  if (
+    usage.scope === "calibrated_quota" ||
+    usage.basis === "quota_percentage"
+  ) {
+    return "校准容量";
+  }
+  return "仅本机";
+}
+
+function tokenEstimateKey(usage: TokenUsage, index: number) {
+  return [
+    usage.basis,
+    usage.periodId || usage.windowId || "unspecified",
+    usage.scope || "unspecified",
+    index,
+  ].join(":");
+}
+
 function providerRisk(
   provider: Provider,
   warningThreshold: number,
@@ -280,15 +316,31 @@ function normalizeBars(points: HistoryPoint[], provider: Provider) {
 
 function getPreferredTokenEstimate(estimates: TokenUsage[]) {
   return (
+    estimates.find(
+      (estimate) =>
+        estimate.basis === "session_logs" && estimate.periodId === "today",
+    ) ||
+    estimates.find(
+      (estimate) =>
+        estimate.basis === "api_usage" && estimate.periodId === "today",
+    ) ||
     estimates.find((estimate) => estimate.basis === "api_usage") ||
-    estimates.find((estimate) => estimate.basis === "quota_percentage") ||
+    estimates.find(
+      (estimate) =>
+        estimate.basis === "session_logs" &&
+        estimate.periodId === "weekly_cycle",
+    ) ||
     estimates.find((estimate) => estimate.basis === "session_logs") ||
+    estimates.find((estimate) => estimate.basis === "quota_percentage") ||
     null
   );
 }
 
 function getPreferredTokenUsage(provider: Provider) {
-  return getPreferredTokenEstimate(getTokenEstimates(provider));
+  return (
+    provider.tokenUsage ||
+    getPreferredTokenEstimate(getTokenEstimates(provider))
+  );
 }
 
 function resolveReset(
@@ -365,22 +417,125 @@ function WindowRow({
   );
 }
 
-function ProviderTokenPanel({ estimates }: { estimates: TokenUsage[] }) {
-  const preferred = getPreferredTokenEstimate(estimates);
+function TokenComposition({
+  inputTokens,
+  outputTokens,
+  cachedInputTokens,
+  reasoningOutputTokens,
+  compact = false,
+}: {
+  inputTokens?: number;
+  outputTokens?: number;
+  cachedInputTokens?: number;
+  reasoningOutputTokens?: number;
+  compact?: boolean;
+}) {
+  if (
+    typeof inputTokens !== "number" ||
+    typeof outputTokens !== "number"
+  ) {
+    return null;
+  }
   return (
-    <section className="token-panel" aria-label="Token 用量估算">
+    <div className={`token-composition ${compact ? "token-composition--compact" : ""}`}>
+      <div aria-label="总量等于输入加输出">
+        <span>
+          输入 <b title={exactTokens(inputTokens)}>{formatTokens(inputTokens)}</b>
+        </span>
+        <i aria-hidden="true">+</i>
+        <span>
+          输出 <b title={exactTokens(outputTokens)}>{formatTokens(outputTokens)}</b>
+        </span>
+        <i aria-hidden="true">=</i>
+        <span>总计</span>
+      </div>
+      {!compact &&
+      (typeof cachedInputTokens === "number" ||
+        typeof reasoningOutputTokens === "number") ? (
+        <small>
+          {typeof cachedInputTokens === "number"
+            ? `其中缓存输入 ${formatTokens(cachedInputTokens)}`
+            : ""}
+          {typeof cachedInputTokens === "number" &&
+          typeof reasoningOutputTokens === "number"
+            ? " · "
+            : ""}
+          {typeof reasoningOutputTokens === "number"
+            ? `其中推理输出 ${formatTokens(reasoningOutputTokens)}`
+            : ""}
+          {" · "}缓存输入与推理输出是子集，不重复相加
+        </small>
+      ) : null}
+    </div>
+  );
+}
+
+function tokenUsageContext(usage: TokenUsage) {
+  if (usage.basis === "quota_percentage") {
+    return usage.capacityTokens
+      ? `${formatPercent(usage.usedPercent ?? null)} × ${formatTokens(
+          usage.capacityTokens,
+        )} · ${tokenScopeLabel(usage)}`
+      : "未配置容量校准，只显示配额百分比";
+  }
+  const period = `${tokenPeriodLabel(usage)}${
+    usage.periodStartAt && usage.periodId !== "today"
+      ? `（${formatShortDate(usage.periodStartAt)} 起）`
+      : ""
+  }`;
+  const activity =
+    usage.basis === "api_usage"
+      ? `${formatNumber(usage.requestCount ?? 0)} 次请求`
+      : `${formatNumber(usage.sessionCount ?? 0)} 个会话`;
+  return `${period} · ${tokenScopeLabel(usage)} · ${activity}`;
+}
+
+function tokenUsageOrder(usage: TokenUsage) {
+  if (usage.periodId === "today" && usage.basis !== "quota_percentage") return 0;
+  if (usage.periodId === "weekly_cycle" && usage.basis !== "quota_percentage") {
+    return 1;
+  }
+  if (usage.basis === "api_usage") return 2;
+  if (usage.basis === "quota_percentage") return 3;
+  return 4;
+}
+
+function ProviderTokenPanel({
+  estimates,
+  preferred,
+}: {
+  estimates: TokenUsage[];
+  preferred: TokenUsage | null;
+}) {
+  const matchesPreferred = (usage: TokenUsage) =>
+    usage === preferred ||
+    Boolean(
+      preferred &&
+        usage.basis === preferred.basis &&
+        usage.periodId === preferred.periodId &&
+        usage.scope === preferred.scope &&
+        usage.totalTokens === preferred.totalTokens,
+    );
+  const orderedEstimates = [...estimates].sort(
+    (left, right) => tokenUsageOrder(left) - tokenUsageOrder(right),
+  );
+  return (
+    <section className="token-panel" aria-label="Token 用量分层">
       <div className="token-panel__heading">
-        <span className="eyebrow">Token 用量 · 多口径</span>
-        <small>官方统计与两种估算独立展示</small>
+        <span className="eyebrow">Token 用量 · 分层口径</span>
+        <small>实测日志与配额换算互不相加</small>
       </div>
       <div className="token-methods">
-        {estimates.map((usage) => (
-          <article className="token-method" key={usage.basis}>
+        {orderedEstimates.map((usage, index) => (
+          <article
+            className={`token-method token-method--${usage.periodId || usage.basis}`}
+            key={tokenEstimateKey(usage, index)}
+          >
             <header>
               <div>
                 <span>
-                  {tokenBasisLabel(usage.basis)}
-                  {preferred?.basis === usage.basis ? " · 总览采用" : ""}
+                  {tokenPeriodLabel(usage)} · {tokenBasisLabel(usage.basis)}
+                  {matchesPreferred(usage) ? " · 快捷视图采用" : ""}
                 </span>
                 {usage.basis === "quota_percentage" &&
                 !usage.capacityTokens ? (
@@ -391,31 +546,15 @@ function ProviderTokenPanel({ estimates }: { estimates: TokenUsage[] }) {
                     {formatTokens(usage.totalTokens)}
                   </strong>
                 )}
-                {usage.basis === "session_logs" &&
-                typeof usage.cachedInputTokens === "number" ? (
-                  <small className="token-method__cached">
-                    其中缓存读 ≈{formatTokens(usage.cachedInputTokens)}
-                  </small>
-                ) : null}
               </div>
-              <small>
-                {usage.basis === "quota_percentage"
-                  ? usage.capacityTokens
-                    ? `${formatPercent(usage.usedPercent ?? null)} × ${formatTokens(
-                        usage.capacityTokens,
-                      )}`
-                    : "未配置容量校准，只显示配额百分比"
-                  : usage.basis === "api_usage"
-                    ? `过去 7 天 · ${formatNumber(
-                        usage.requestCount ?? 0,
-                      )} 次请求`
-                    : `仅本机 · 订阅周期${
-                        usage.periodStartAt
-                          ? `（${formatShortDate(usage.periodStartAt)} 起）`
-                          : ""
-                      } · ${formatNumber(usage.sessionCount ?? 0)} 个会话`}
-              </small>
+              <small>{tokenUsageContext(usage)}</small>
             </header>
+            <TokenComposition
+              inputTokens={usage.inputTokens}
+              outputTokens={usage.outputTokens}
+              cachedInputTokens={usage.cachedInputTokens}
+              reasoningOutputTokens={usage.reasoningOutputTokens}
+            />
             <div className="token-models">
               {usage.models.map((model) => (
                 <div className="token-model" key={model.id}>
@@ -435,6 +574,13 @@ function ProviderTokenPanel({ estimates }: { estimates: TokenUsage[] }) {
                           : "token_count 增量"}
                       {model.countedInTotal ? "" : " · 独立额度，不计入总数"}
                     </small>
+                    <TokenComposition
+                      compact
+                      inputTokens={model.inputTokens}
+                      outputTokens={model.outputTokens}
+                      cachedInputTokens={model.cachedInputTokens}
+                      reasoningOutputTokens={model.reasoningOutputTokens}
+                    />
                   </div>
                   <strong title={exactTokens(model.estimatedTokens)}>
                     {usage.estimated ? "≈" : ""}
@@ -450,108 +596,176 @@ function ProviderTokenPanel({ estimates }: { estimates: TokenUsage[] }) {
   );
 }
 
-function tokenBasisShortLabel(basis: TokenUsage["basis"]) {
-  if (basis === "api_usage") return "官方 API";
-  if (basis === "session_logs") return "本机日志";
-  return "配额百分比";
+type TokenOverviewEntry = {
+  provider: Provider;
+  usage: TokenUsage;
+};
+
+function findRecordedUsage(
+  provider: Provider,
+  periodId: "today" | "weekly_cycle",
+) {
+  const matches = getTokenEstimates(provider).filter(
+    (usage) =>
+      usage.periodId === periodId &&
+      (usage.basis === "session_logs" || usage.basis === "api_usage"),
+  );
+  return (
+    matches.find((usage) => usage.basis === "api_usage") ||
+    matches.find((usage) => usage.basis === "session_logs") ||
+    null
+  );
 }
 
-function tokenBasisScopeLabel(basis: TokenUsage["basis"]) {
-  if (basis === "api_usage") return "账户级";
-  if (basis === "session_logs") return "仅本机";
-  return "用户校准容量";
+function recordedEntries(
+  providers: Provider[],
+  periodId: "today" | "weekly_cycle",
+) {
+  return providers
+    .map((provider) => ({
+      provider,
+      usage: findRecordedUsage(provider, periodId),
+    }))
+    .filter(
+      (entry): entry is TokenOverviewEntry => Boolean(entry.usage),
+    );
+}
+
+function tokenEntriesTotal(entries: TokenOverviewEntry[]) {
+  return entries.reduce((sum, { usage }) => sum + usage.totalTokens, 0);
+}
+
+function recordedCoverage(
+  entries: TokenOverviewEntry[],
+  providers: Provider[],
+) {
+  if (!entries.length) return "暂无该周期的真实 Token 记录";
+  const covered = entries
+    .map(({ provider, usage }) => `${provider.name} · ${tokenScopeLabel(usage)}`)
+    .join("；");
+  const coveredIds = new Set(entries.map(({ provider }) => provider.id));
+  const missing = providers
+    .filter((provider) => !coveredIds.has(provider.id))
+    .map((provider) => provider.name);
+  return `${covered}${missing.length ? `；${missing.join("、")} 暂无实测` : ""}`;
+}
+
+function overviewComposition(entries: TokenOverviewEntry[]) {
+  if (
+    !entries.length ||
+    !entries.every(
+      ({ usage }) =>
+        typeof usage.inputTokens === "number" &&
+        typeof usage.outputTokens === "number",
+    )
+  ) {
+    return null;
+  }
+  return {
+    inputTokens: entries.reduce(
+      (sum, { usage }) => sum + (usage.inputTokens || 0),
+      0,
+    ),
+    outputTokens: entries.reduce(
+      (sum, { usage }) => sum + (usage.outputTokens || 0),
+      0,
+    ),
+  };
 }
 
 function TokenOverview({ providers }: { providers: Provider[] }) {
-  const providerUsages = providers
+  const todayEntries = recordedEntries(providers, "today");
+  const weeklyEntries = recordedEntries(providers, "weekly_cycle");
+  const quotaEntries = providers
     .map((provider) => ({
       provider,
-      usage: getPreferredTokenUsage(provider),
+      usage:
+        getTokenEstimates(provider).find(
+          (usage) => usage.basis === "quota_percentage",
+        ) || null,
     }))
     .filter(
-      (entry): entry is { provider: Provider; usage: TokenUsage } =>
-        Boolean(entry.usage),
+      (entry): entry is TokenOverviewEntry =>
+        Boolean(
+          entry.usage &&
+            typeof entry.usage.capacityTokens === "number" &&
+            entry.usage.capacityTokens > 0,
+        ),
     );
-  // Percentage-only rows are not tokens. A quota-derived estimate becomes
-  // summable only after the user has explicitly calibrated its capacity.
-  const tokenEntries = providerUsages.filter(
-    ({ usage }) =>
-      usage.basis !== "quota_percentage" ||
-      (typeof usage.capacityTokens === "number" &&
-        usage.capacityTokens > 0),
-  );
-  const preferredTotal = tokenEntries.reduce(
-    (sum, { usage }) => sum + usage.totalTokens,
-    0,
-  );
-  const bases = [...new Set(tokenEntries.map(({ usage }) => usage.basis))];
-  const scopes = [
-    ...new Set(
-      tokenEntries.map(({ usage }) => tokenBasisScopeLabel(usage.basis)),
-    ),
+  const todayComposition = overviewComposition(todayEntries);
+  const weeklyComposition = overviewComposition(weeklyEntries);
+  const layers = [
+    {
+      id: "today",
+      label: "今日已记录 Token",
+      total: tokenEntriesTotal(todayEntries),
+      entries: todayEntries,
+      composition: todayComposition,
+      caption: recordedCoverage(todayEntries, providers),
+      estimated: todayEntries.some(({ usage }) => usage.estimated),
+    },
+    {
+      id: "weekly",
+      label: "订阅周期已记录",
+      total: tokenEntriesTotal(weeklyEntries),
+      entries: weeklyEntries,
+      composition: weeklyComposition,
+      caption: recordedCoverage(weeklyEntries, providers),
+      estimated: weeklyEntries.some(({ usage }) => usage.estimated),
+    },
+    {
+      id: "quota",
+      label: "配额换算",
+      total: tokenEntriesTotal(quotaEntries),
+      entries: quotaEntries,
+      composition: null,
+      caption: quotaEntries.length
+        ? `${quotaEntries
+            .map(({ provider }) => provider.name)
+            .join("、")} · 百分比 × 校准容量`
+        : "尚未配置可换算的订阅容量",
+      estimated: true,
+    },
   ];
-  const isEstimated = tokenEntries.some(
-    ({ usage }) => usage.estimated || usage.basis !== "api_usage",
-  );
-  const basisCaption = bases.length
-    ? `${bases.map(tokenBasisShortLabel).join(" + ")} · ${scopes.join(" / ")}`
-    : null;
+
   return (
-    <section className="token-overview" aria-label="周 Token 总览">
-      <div className="token-overview__total">
-        <span className="eyebrow">本周 Token · 跨平台汇总</span>
+    <section className="token-overview" aria-label="Token 分层总览">
+      <header className="token-overview__heading">
         <div>
-          <strong
-            title={tokenEntries.length ? exactTokens(preferredTotal) : undefined}
-          >
-            {tokenEntries.length
-              ? `${isEstimated ? "≈" : ""}${formatTokens(preferredTotal)}`
-              : "未提供"}
-          </strong>
-          <small>
-            {isEstimated ? "逐平台首选口径估算" : "官方口径合计"}
-          </small>
+          <span className="eyebrow">Token 用量</span>
+          <strong>实际记录与额度估算分开看</strong>
         </div>
-        {basisCaption ? (
-          <p className="token-overview__log">{basisCaption}</p>
-        ) : null}
-      </div>
-      <div className="token-overview__providers">
-        {providerUsages.length ? (
-          providerUsages.map(({ provider, usage }) => (
-            <div
-              key={provider.id}
-              style={{ "--provider-accent": provider.accent } as React.CSSProperties}
+        <small>输入 + 输出 = 总量；缓存与推理不重复计入</small>
+      </header>
+      <div className="token-overview__layers">
+        {layers.map((layer) => (
+          <article
+            className={`token-overview__layer token-overview__layer--${layer.id}`}
+            key={layer.id}
+          >
+            <span>{layer.label}</span>
+            <strong
+              title={
+                layer.entries.length ? exactTokens(layer.total) : undefined
+              }
             >
-              <span>{provider.name}</span>
-              {usage.basis === "quota_percentage" &&
-              !(typeof usage.capacityTokens === "number" &&
-                usage.capacityTokens > 0) ? (
-                <>
-                  <strong>{formatPercent(usage.usedPercent ?? null)}</strong>
-                  <small>配额百分比 · 未换算 token</small>
-                </>
-              ) : (
-                <>
-                  <strong title={exactTokens(usage.totalTokens)}>
-                    {usage.estimated ? "≈" : ""}
-                    {formatTokens(usage.totalTokens)}
-                  </strong>
-                  <small>
-                    {tokenBasisShortLabel(usage.basis)} ·{" "}
-                    {tokenBasisScopeLabel(usage.basis)}
-                  </small>
-                </>
-              )}
-            </div>
-          ))
-        ) : (
-          <p>等待平台配额或本机会话日志</p>
-        )}
+              {layer.entries.length
+                ? `${layer.estimated ? "≈" : ""}${formatTokens(layer.total)}`
+                : "未提供"}
+            </strong>
+            {layer.composition ? (
+              <TokenComposition
+                compact
+                inputTokens={layer.composition.inputTokens}
+                outputTokens={layer.composition.outputTokens}
+              />
+            ) : null}
+            <small>{layer.caption}</small>
+          </article>
+        ))}
       </div>
       <p className="token-overview__note">
-        总览为每个平台只取一个首选口径（官方 API、已校准配额、本机日志依次
-        选择）再求和；混合范围会标为估算，不等同于平台账单。
+        三层口径互不相加：今日与订阅周期来自日志或官方实际记录；配额换算只是容量估计，不代表真实 Token。
       </p>
     </section>
   );
@@ -679,7 +893,10 @@ function ProviderCard({
       )}
 
       {getTokenEstimates(provider).length ? (
-        <ProviderTokenPanel estimates={getTokenEstimates(provider)} />
+        <ProviderTokenPanel
+          estimates={getTokenEstimates(provider)}
+          preferred={getPreferredTokenUsage(provider)}
+        />
       ) : null}
 
       <footer className="provider-card__footer">
@@ -1570,7 +1787,7 @@ export function UsageDashboard({
         <footer className="dashboard-footer">
           <p>
             <span />
-            各口径独立展示 · 跨平台总数逐平台只取一个首选口径
+            三层口径互不相加 · 缺失实测如实标注
           </p>
           <p>
             Collector {data?.collector.version || DASHBOARD_VERSION} · 自动刷新 60 秒
