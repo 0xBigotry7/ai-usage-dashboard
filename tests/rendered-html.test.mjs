@@ -30,9 +30,9 @@ test("build contains the dashboard, dedicated display, brands, and protected rou
   assert.match(dashboard, /OpenAI Codex/);
   assert.match(dashboard, /Kimi Code/);
   assert.match(dashboard, /Token 用量 · 多口径/);
-  assert.match(dashboard, /周 Token · 可信口径/);
-  assert.match(dashboard, /官方 API、配额换算与 CLI 日志/);
-  // Quota-derived tokens must not appear as a headline number anymore.
+  assert.match(dashboard, /本周 Token · 跨平台汇总/);
+  assert.match(dashboard, /官方 API、已校准配额、本机日志依次/);
+  // The old unlabeled quota-derived headline must stay removed.
   assert.doesNotMatch(dashboard, /配额换算<\/small>/);
   assert.match(dashboard, /历史数据已截断，仅显示最近部分/);
   assert.match(dashboard, /Dashboard 显示设置/);

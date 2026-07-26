@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import {
   chmod,
+  cp,
   copyFile,
   mkdir,
   mkdtemp,
@@ -29,12 +30,23 @@ const contentsPath = join(appPath, "Contents");
 const executablePath = join(contentsPath, "MacOS", "UsageMenuBar");
 const brandsSourcePath = join(root, "public", "brands");
 const brandsDestinationPath = join(contentsPath, "Resources", "brands");
+const collectorDestinationPath = join(
+  contentsPath,
+  "Resources",
+  "collector",
+);
 const packageJson = JSON.parse(
   await readFile(join(root, "package.json"), "utf8"),
 );
 const version = String(packageJson.version);
+const dashboardURL =
+  process.env.USAGE_HUB_DASHBOARD_URL?.trim() ||
+  "http://localhost:3000";
 if (!/^\d+(?:\.\d+){0,2}$/.test(version)) {
   throw new Error(`package.json contains an invalid app version: ${version}`);
+}
+if (!/^https?:\/\/[^<>"\s]+$/.test(dashboardURL)) {
+  throw new Error("USAGE_HUB_DASHBOARD_URL must be an HTTP(S) URL");
 }
 
 execFileSync(
@@ -86,6 +98,13 @@ await Promise.all(
     ),
   ),
 );
+await cp(join(root, "collector"), collectorDestinationPath, {
+  recursive: true,
+});
+await copyFile(
+  join(root, "package.json"),
+  join(contentsPath, "Resources", "package.json"),
+);
 
 await writeFile(
   join(contentsPath, "Info.plist"),
@@ -113,6 +132,11 @@ await writeFile(
   <string>14.0</string>
   <key>LSUIElement</key>
   <true/>
+  <key>UsageHubDashboardURL</key>
+  <string>${dashboardURL
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")}</string>
 </dict>
 </plist>
 `,

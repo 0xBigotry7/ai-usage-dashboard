@@ -235,7 +235,11 @@ const server = createServer(async (request, response) => {
       return;
     }
     if (request.method === "GET" && url.pathname === "/api/usage") {
-      if (!latest.generatedAt) await refresh();
+      if (!latest.generatedAt) {
+        void refresh().catch((error) => {
+          console.warn(`首次刷新失败：${error?.message || "未知错误"}`);
+        });
+      }
       sendJson(response, 200, latest, origin);
       return;
     }
@@ -263,15 +267,13 @@ const server = createServer(async (request, response) => {
   }
 });
 
-try {
-  await refresh();
-} catch (error) {
+server.listen(PORT, HOST, () => {
+  console.log(`AI Usage Dashboard collector: http://${HOST}:${PORT}`);
+});
+void refresh().catch((error) => {
   console.warn(
     `首次刷新失败，将在下个周期重试：${error?.message || "未知错误"}`,
   );
-}
-server.listen(PORT, HOST, () => {
-  console.log(`AI Usage Dashboard collector: http://${HOST}:${PORT}`);
 });
 
 const interval = setInterval(() => {

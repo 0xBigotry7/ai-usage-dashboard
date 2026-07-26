@@ -278,14 +278,17 @@ function normalizeBars(points: HistoryPoint[], provider: Provider) {
     : [];
 }
 
-function getPreferredTokenUsage(provider: Provider) {
-  const estimates = getTokenEstimates(provider);
+function getPreferredTokenEstimate(estimates: TokenUsage[]) {
   return (
     estimates.find((estimate) => estimate.basis === "api_usage") ||
-    estimates.find((estimate) => estimate.basis === "session_logs") ||
     estimates.find((estimate) => estimate.basis === "quota_percentage") ||
+    estimates.find((estimate) => estimate.basis === "session_logs") ||
     null
   );
+}
+
+function getPreferredTokenUsage(provider: Provider) {
+  return getPreferredTokenEstimate(getTokenEstimates(provider));
 }
 
 function resolveReset(
@@ -363,6 +366,7 @@ function WindowRow({
 }
 
 function ProviderTokenPanel({ estimates }: { estimates: TokenUsage[] }) {
+  const preferred = getPreferredTokenEstimate(estimates);
   return (
     <section className="token-panel" aria-label="Token 用量估算">
       <div className="token-panel__heading">
@@ -374,19 +378,23 @@ function ProviderTokenPanel({ estimates }: { estimates: TokenUsage[] }) {
           <article className="token-method" key={usage.basis}>
             <header>
               <div>
-                <span>{tokenBasisLabel(usage.basis)}</span>
+                <span>
+                  {tokenBasisLabel(usage.basis)}
+                  {preferred?.basis === usage.basis ? " · 总览采用" : ""}
+                </span>
                 {usage.basis === "quota_percentage" &&
                 !usage.capacityTokens ? (
                   <strong>{formatPercent(usage.usedPercent ?? null)}</strong>
                 ) : (
                   <strong title={exactTokens(usage.totalTokens)}>
+                    {usage.estimated ? "≈" : ""}
                     {formatTokens(usage.totalTokens)}
                   </strong>
                 )}
                 {usage.basis === "session_logs" &&
                 typeof usage.cachedInputTokens === "number" ? (
                   <small className="token-method__cached">
-                    其中缓存读 {formatTokens(usage.cachedInputTokens)}
+                    其中缓存读 ≈{formatTokens(usage.cachedInputTokens)}
                   </small>
                 ) : null}
               </div>
@@ -429,6 +437,7 @@ function ProviderTokenPanel({ estimates }: { estimates: TokenUsage[] }) {
                     </small>
                   </div>
                   <strong title={exactTokens(model.estimatedTokens)}>
+                    {usage.estimated ? "≈" : ""}
                     {formatTokens(model.estimatedTokens)}
                   </strong>
                 </div>
@@ -463,34 +472,45 @@ function TokenOverview({ providers }: { providers: Provider[] }) {
       (entry): entry is { provider: Provider; usage: TokenUsage } =>
         Boolean(entry.usage),
     );
-  // Quota-derived tokens never become a headline number: percentage-only
-  // providers show their percent and stay out of the token sum.
+  // Percentage-only rows are not tokens. A quota-derived estimate becomes
+  // summable only after the user has explicitly calibrated its capacity.
   const tokenEntries = providerUsages.filter(
-    ({ usage }) => usage.basis !== "quota_percentage",
+    ({ usage }) =>
+      usage.basis !== "quota_percentage" ||
+      (typeof usage.capacityTokens === "number" &&
+        usage.capacityTokens > 0),
   );
   const preferredTotal = tokenEntries.reduce(
     (sum, { usage }) => sum + usage.totalTokens,
     0,
   );
   const bases = [...new Set(tokenEntries.map(({ usage }) => usage.basis))];
+  const scopes = [
+    ...new Set(
+      tokenEntries.map(({ usage }) => tokenBasisScopeLabel(usage.basis)),
+    ),
+  ];
+  const isEstimated = tokenEntries.some(
+    ({ usage }) => usage.estimated || usage.basis !== "api_usage",
+  );
   const basisCaption = bases.length
-    ? `${bases.map(tokenBasisShortLabel).join(" + ")} · ${
-        bases.length > 1
-          ? "账户级与本机混合范围"
-          : tokenBasisScopeLabel(bases[0])
-      }`
+    ? `${bases.map(tokenBasisShortLabel).join(" + ")} · ${scopes.join(" / ")}`
     : null;
   return (
     <section className="token-overview" aria-label="周 Token 总览">
       <div className="token-overview__total">
-        <span className="eyebrow">本周 Token · 可信口径</span>
+        <span className="eyebrow">本周 Token · 跨平台汇总</span>
         <div>
           <strong
             title={tokenEntries.length ? exactTokens(preferredTotal) : undefined}
           >
-            {tokenEntries.length ? formatTokens(preferredTotal) : "未提供"}
+            {tokenEntries.length
+              ? `${isEstimated ? "≈" : ""}${formatTokens(preferredTotal)}`
+              : "未提供"}
           </strong>
-          <small>单口径求和</small>
+          <small>
+            {isEstimated ? "逐平台首选口径估算" : "官方口径合计"}
+          </small>
         </div>
         {basisCaption ? (
           <p className="token-overview__log">{basisCaption}</p>
@@ -504,7 +524,9 @@ function TokenOverview({ providers }: { providers: Provider[] }) {
               style={{ "--provider-accent": provider.accent } as React.CSSProperties}
             >
               <span>{provider.name}</span>
-              {usage.basis === "quota_percentage" ? (
+              {usage.basis === "quota_percentage" &&
+              !(typeof usage.capacityTokens === "number" &&
+                usage.capacityTokens > 0) ? (
                 <>
                   <strong>{formatPercent(usage.usedPercent ?? null)}</strong>
                   <small>配额百分比 · 未换算 token</small>
@@ -512,6 +534,7 @@ function TokenOverview({ providers }: { providers: Provider[] }) {
               ) : (
                 <>
                   <strong title={exactTokens(usage.totalTokens)}>
+                    {usage.estimated ? "≈" : ""}
                     {formatTokens(usage.totalTokens)}
                   </strong>
                   <small>
@@ -527,8 +550,8 @@ function TokenOverview({ providers }: { providers: Provider[] }) {
         )}
       </div>
       <p className="token-overview__note">
-        官方 API、配额换算与 CLI 日志范围不同：总览为每个平台只取一个最可信口径
-        （官方 API 优先，其次本机日志）再求和，配额换算不再计入大数字。
+        总览为每个平台只取一个首选口径（官方 API、已校准配额、本机日志依次
+        选择）再求和；混合范围会标为估算，不等同于平台账单。
       </p>
     </section>
   );
@@ -776,6 +799,7 @@ function DisplayProviderTile({
                   {model.usedPercent !== undefined
                     ? `${formatPercent(model.usedPercent)} · `
                     : ""}
+                  {usage.estimated ? "≈" : ""}
                   {formatTokens(model.estimatedTokens)}
                 </strong>
               </div>
@@ -1546,7 +1570,7 @@ export function UsageDashboard({
         <footer className="dashboard-footer">
           <p>
             <span />
-            每个平台只取一个最可信口径 · 官方 API、本机日志与配额换算不重复相加
+            各口径独立展示 · 跨平台总数逐平台只取一个首选口径
           </p>
           <p>
             Collector {data?.collector.version || DASHBOARD_VERSION} · 自动刷新 60 秒

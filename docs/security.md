@@ -23,14 +23,15 @@ These goals depend on keeping real values outside source-controlled files.
 
 ## Local log estimator
 
-The Codex log estimator reads only lines containing `token_count` or
-`turn_context`. It extracts numeric cumulative token counters and a bounded
-model label. It does not include raw events in API responses, SQLite, D1, or
-logs. Counting follows counter deltas per session file, deduplicates resumed
-or forked sessions that inherit a parent counter, and aligns the window with
-the subscription quota cycle embedded in the events (falling back to the past
-seven days). Totals include cached input reads, broken out separately as
-`cachedInputTokens`.
+The Codex log estimator reads only lines containing `token_count`,
+`turn_context`, or `session_meta`. It extracts numeric cumulative token
+counters, a bounded model label, and only the rollout IDs/relationship fields
+needed to recognize inherited counters. It does not include raw events in API
+responses, SQLite, D1, or logs. Counting follows counter deltas per session
+file, deduplicates resumed or forked sessions that inherit a parent counter,
+and aligns the window with the subscription quota cycle embedded in the events
+(falling back to the past seven days). Totals include cached input reads,
+broken out separately as `cachedInputTokens`.
 
 This is a data-minimization property, not a filesystem sandbox: the local
 process still has the permissions of the user who starts it. Disable the scan

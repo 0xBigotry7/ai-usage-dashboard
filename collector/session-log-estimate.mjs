@@ -9,14 +9,12 @@ const WEEK_SECONDS = 7 * 24 * 60 * 60;
 // Cheap pre-filter before JSON.parse; JSON allows whitespace around the
 // colon, so a bare '"type":"token_count"' substring match misses pretty
 // printed variants such as '"type": "token_count"'.
-const TOKEN_EVENT_PATTERN = /"type"\s*:\s*"(?:token_count|turn_context)"/;
+const TOKEN_EVENT_PATTERN =
+  /"type"\s*:\s*"(?:session_meta|token_count|turn_context)"/;
 
-// A fresh rollout file starts its cumulative counter near zero, so the
-// first event's total roughly equals its per-turn last. A resume/fork
-// rollout inherits the parent session's counter, making total dwarf last
-// (observed: total 195,573,881 vs last 128,017). 3x separates the two
-// cases with wide margin while keeping single lost events (total <= 3x
-// last) counted in full.
+// Older rollout files may not expose relationship metadata. Keep a
+// conservative fallback for those files, but prefer session_meta's explicit
+// fork/resume fields whenever they are available.
 const INHERITED_COUNTER_RATIO = 3;
 
 async function* jsonlFiles(directory) {
@@ -51,19 +49,37 @@ function epochToMs(value) {
   return Math.round(number < 10_000_000_000 ? number * 1000 : number);
 }
 
-function rateLimitWindow(payload) {
-  const secondary = payload?.rate_limits?.secondary;
-  const windowMinutes = Number(secondary?.window_minutes);
-  const resetsAtMs = epochToMs(secondary?.resets_at);
+function normalizedRateLimitWindow(value) {
+  const windowMinutes = Number(value?.window_minutes);
+  const resetsAtMs = epochToMs(value?.resets_at);
   if (!Number.isFinite(windowMinutes) || windowMinutes <= 0 || !resetsAtMs) {
     return null;
   }
   return { windowSeconds: Math.round(windowMinutes * 60), resetsAtMs };
 }
 
+function rateLimitWindow(payload) {
+  // Codex has emitted the weekly quota as either primary or secondary across
+  // versions. This estimator is explicitly weekly, so choose the 10,080-minute
+  // candidate instead of assuming a fixed slot or accidentally aligning to a
+  // shorter session window.
+  return [
+    payload?.rate_limits?.primary,
+    payload?.rate_limits?.secondary,
+  ]
+    .map(normalizedRateLimitWindow)
+    .find((window) => window?.windowSeconds === WEEK_SECONDS) || null;
+}
+
 async function readTokenCountRecords(path) {
   const records = [];
+  const fileId = basename(path, ".jsonl");
+  const rolloutId =
+    fileId.match(
+      /([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})$/i,
+    )?.[1] || fileId;
   let model = "Codex";
+  let inheritedCounter = null;
   const input = createReadStream(path, { encoding: "utf8" });
   const lines = createInterface({ input, crlfDelay: Infinity });
 
@@ -76,6 +92,29 @@ async function readTokenCountRecords(path) {
       continue;
     }
 
+    if (event.type === "session_meta") {
+      const metadata = event.payload;
+      // A forked rollout can embed the parent's session_meta after its own.
+      // Only the metadata whose id belongs to this file describes whether
+      // this file inherited a counter.
+      if (
+        inheritedCounter !== null ||
+        typeof metadata?.id !== "string" ||
+        metadata.id !== rolloutId
+      ) {
+        continue;
+      }
+      const sessionId =
+        typeof metadata?.session_id === "string"
+          ? metadata.session_id
+          : null;
+      inheritedCounter = Boolean(
+        metadata?.forked_from_id ||
+          metadata?.parent_thread_id ||
+          (sessionId && rolloutId !== sessionId),
+      );
+      continue;
+    }
     if (
       event.type === "turn_context" &&
       typeof event.payload?.model === "string" &&
@@ -105,6 +144,7 @@ async function readTokenCountRecords(path) {
       cachedLastTokens: finiteTokenCount(
         event.payload?.info?.last_token_usage?.cached_input_tokens,
       ),
+      inheritedCounter,
       rateLimitWindow: rateLimitWindow(event.payload),
       model,
     });
@@ -144,15 +184,24 @@ export function summarizeTokenCountRecords(records, sinceMs) {
         // the last turn is new in that case; a fresh file (total within
         // 3x of last, or no last to compare against) is counted in full.
         inheritedCounter =
-          lastTokens !== null && currentTotal > lastTokens * INHERITED_COUNTER_RATIO;
-        increment = inheritedCounter ? lastTokens : currentTotal;
+          record.inheritedCounter === true ||
+          (record.inheritedCounter !== false &&
+            lastTokens !== null &&
+            currentTotal > lastTokens * INHERITED_COUNTER_RATIO);
+        increment =
+          inheritedCounter ? (lastTokens ?? currentTotal) : currentTotal;
       } else {
         // Counter deltas are the source of truth: last_token_usage only
         // covers a single turn, so preferring it undercounts whenever an
-        // event is lost between two observed ones. Fall back to the last
-        // turn only when the counter regressed or reset.
+        // event is lost between two observed ones. When the counter regresses,
+        // the new cumulative epoch is the only complete baseline available.
         const delta = currentTotal - previousTotal;
-        increment = delta > 0 ? delta : (lastTokens ?? currentTotal);
+        increment =
+          delta > 0
+            ? delta
+            : delta < 0
+              ? currentTotal
+              : 0;
       }
       previousTotal = currentTotal;
 
@@ -165,7 +214,12 @@ export function summarizeTokenCountRecords(records, sinceMs) {
           cachedIncrement = inheritedCounter ? (lastCached ?? 0) : currentCached;
         } else {
           const delta = currentCached - previousCached;
-          cachedIncrement = delta > 0 ? delta : (lastCached ?? currentCached);
+          cachedIncrement =
+            delta > 0
+              ? delta
+              : delta < 0
+                ? currentCached
+                : 0;
         }
         previousCached = currentCached;
       }
@@ -225,9 +279,10 @@ export async function estimateCodexSessionLogTokens(
   }
 
   // Align the window with the subscription quota cycle: token_count events
-  // embed rate_limits.secondary from the same source as the quota API, so
-  // the latest one pins the current weekly window. Reject stale windows
-  // that ended before the fallback week, then fall back to now-7d.
+  // embed the current weekly rate-limit window (the provider has used both
+  // primary and secondary slots across versions), so the latest one pins the
+  // subscription cycle. Reject an already-ended window, then fall back to
+  // now-7d.
   let alignedWindow = null;
   for (const record of records) {
     if (
@@ -241,7 +296,7 @@ export async function estimateCodexSessionLogTokens(
   let periodSeconds = WEEK_SECONDS;
   if (alignedWindow) {
     const startMs = alignedWindow.resetsAtMs - alignedWindow.windowSeconds * 1000;
-    if (startMs <= now && alignedWindow.resetsAtMs >= fallbackSinceMs) {
+    if (startMs <= now && alignedWindow.resetsAtMs > now) {
       sinceMs = startMs;
       periodSeconds = alignedWindow.windowSeconds;
     }

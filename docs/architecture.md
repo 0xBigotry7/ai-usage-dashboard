@@ -72,7 +72,10 @@ cached input reads, with the cached-read portion broken out as
 `cachedInputTokens`. It does not inspect or export message bodies. It covers
 this machine only and can miss other devices and deleted logs.
 
-The UI compares these methods and never adds them together.
+The provider view compares these methods without merging them. The
+cross-provider headline selects at most one preferred method per provider
+(`api_usage`, then a calibrated `quota_percentage`, then `session_logs`) and
+labels any inferred or mixed-scope sum as an estimate rather than a bill.
 
 ### Display clients
 

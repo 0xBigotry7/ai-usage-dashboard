@@ -35,13 +35,14 @@ export async function GET(request: Request) {
     .from(remoteUsageHistory)
     .where(gte(remoteUsageHistory.capturedAt, since))
     .orderBy(desc(remoteUsageHistory.capturedAt))
-    .limit(HISTORY_LIMIT);
-  const points = rows.reverse();
+    .limit(HISTORY_LIMIT + 1);
+  const truncated = rows.length > HISTORY_LIMIT;
+  const points = rows.slice(0, HISTORY_LIMIT).reverse();
 
   return Response.json(
     {
       generatedAt: new Date().toISOString(),
-      truncated: rows.length === HISTORY_LIMIT,
+      truncated,
       points,
     },
     { headers: { "Cache-Control": "private, no-store" } },

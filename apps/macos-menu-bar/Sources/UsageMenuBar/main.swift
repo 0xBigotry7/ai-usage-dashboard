@@ -55,6 +55,7 @@ private struct UsageProvider: Decodable, Identifiable {
     let updatedAt: String?
     let windows: [UsageWindow]
     let balance: UsageBalance?
+    let message: String?
     let tokenUsage: TokenEstimate?
     let tokenEstimates: [TokenEstimate]?
 
@@ -216,7 +217,15 @@ private final class UsageStore: ObservableObject {
         refreshLaunchAtLoginStatus()
         Task {
             await synchronizeNotificationAuthorization()
-            await refresh()
+            for delaySeconds in [0, 2, 4, 8, 16] {
+                if delaySeconds > 0 {
+                    try? await Task.sleep(
+                        nanoseconds: UInt64(delaySeconds) * 1_000_000_000
+                    )
+                }
+                await refresh()
+                if !providers.isEmpty { break }
+            }
         }
         refreshTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
             Task { @MainActor in
@@ -257,7 +266,12 @@ private final class UsageStore: ObservableObject {
     }
 
     func openDashboard() {
-        guard let url = URL(string: "http://localhost:3000") else { return }
+        let configuredURL = Bundle.main.object(
+            forInfoDictionaryKey: "UsageHubDashboardURL"
+        ) as? String
+        guard let url = URL(
+            string: configuredURL ?? "http://localhost:3000"
+        ) else { return }
         NSWorkspace.shared.open(url)
     }
 
@@ -730,12 +744,12 @@ private struct ProviderRow: View {
 
     // Only the preferred basis feeds the top-3 list so one model never
     // appears twice under two different accounting bases. Priority matches
-    // the web dashboard: api_usage > session_logs > quota_percentage.
+    // the web dashboard: api_usage > quota_percentage > session_logs.
     private var preferredTokenEstimate: TokenEstimate? {
         let estimates = provider.effectiveTokenEstimates
         return estimates.first(where: { $0.basis == "api_usage" })
-            ?? estimates.first(where: { $0.basis == "session_logs" })
             ?? estimates.first(where: { $0.basis == "quota_percentage" })
+            ?? estimates.first(where: { $0.basis == "session_logs" })
     }
 
     private var modelTokens: [ModelTokenDisplay] {
@@ -774,6 +788,16 @@ private struct ProviderRow: View {
                         .monospacedDigit()
                 }
                 .font(.system(size: 10))
+            }
+
+            if let message = provider.message, !message.isEmpty {
+                Label(message, systemImage: "clock.badge.exclamationmark")
+                    .font(.system(size: 9))
+                    .foregroundStyle(
+                        provider.state == "ready" ? Color.orange : Color.red
+                    )
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             if !modelTokens.isEmpty {
@@ -843,7 +867,7 @@ private struct ProviderRow: View {
         if let balance = provider.balance {
             return formatBalance(balance)
         }
-        return provider.state == "ready" ? "—" : "!"
+        return provider.state == "ready" ? "—" : "异常"
     }
 
     private var stateLabel: String {
@@ -1191,9 +1215,9 @@ private func formatCompactNumber(
 
 private func basisLabel(_ basis: String) -> String {
     switch basis {
-    case "api_usage": return "API"
-    case "session_logs": return "日志"
-    case "quota_percentage": return "配额"
+    case "api_usage": return "API·账户"
+    case "session_logs": return "日志·本机"
+    case "quota_percentage": return "配额·校准"
     default: return "其他"
     }
 }
@@ -1224,11 +1248,13 @@ private extension Color {
 @MainActor
 private final class UsageMenuBarDelegate: NSObject, NSApplicationDelegate {
     private var store: UsageStore?
+    private var collectorProcess: Process?
     private var statusItem: NSStatusItem?
     private var popover: NSPopover?
     private var statusUpdateCancellable: AnyCancellable?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        collectorProcess = startBundledCollector()
         let store = UsageStore()
         let statusItemPositionKey =
             "NSStatusItem Preferred Position AIUsageDashboardUsage"
@@ -1269,6 +1295,61 @@ private final class UsageMenuBarDelegate: NSObject, NSApplicationDelegate {
             DispatchQueue.main.async {
                 self?.updateStatusItem()
             }
+        }
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        if collectorProcess?.isRunning == true {
+            collectorProcess?.terminate()
+        }
+    }
+
+    private func startBundledCollector() -> Process? {
+        guard
+            let resourceURL = Bundle.main.resourceURL,
+            let nodeURL = [
+                "/opt/homebrew/bin/node",
+                "/usr/local/bin/node",
+            ]
+            .map(URL.init(fileURLWithPath:))
+            .first(where: {
+                FileManager.default.isExecutableFile(atPath: $0.path)
+            })
+        else {
+            NSLog("Bundled collector not started: Node.js was not found")
+            return nil
+        }
+
+        let collectorURL = resourceURL
+            .appendingPathComponent("collector", isDirectory: true)
+            .appendingPathComponent("server.mjs")
+        guard FileManager.default.fileExists(atPath: collectorURL.path) else {
+            // `swift run` intentionally keeps the collector external.
+            return nil
+        }
+
+        let process = Process()
+        process.executableURL = nodeURL
+        process.arguments = [
+            "--enable-source-maps",
+            collectorURL.path,
+        ]
+        process.currentDirectoryURL = resourceURL
+        process.environment = ProcessInfo.processInfo.environment.merging([
+            "USAGE_HUB_HOST": "127.0.0.1",
+            "USAGE_HUB_PORT": "4317",
+        ]) { _, bundledValue in bundledValue }
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+            return process
+        } catch {
+            NSLog(
+                "Bundled collector failed to start: %@",
+                String(describing: error)
+            )
+            return nil
         }
     }
 

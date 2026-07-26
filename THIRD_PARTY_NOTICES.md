@@ -53,8 +53,9 @@ architecture decisions around menu-bar information density, provider
 separation, warning thresholds, and refresh behavior. Version 0.8.0 includes
 small, normalized-schema adaptations of the pace projection and quota-alert
 state behavior, plus a focused adaptation of CodexBar's native status-item
-placement approach for macOS 26. No complete CodexBar source file or provider
-parser is vendored.
+placement approach for macOS 26. Its rollout-lineage scanner also informed the
+local estimator's use of explicit fork metadata before heuristic fallback. No
+complete CodexBar source file or provider parser is vendored.
 
 The detailed implementation review used
 [commit `cc8da27cec92029a6435bfee4a703a719290234e`](https://github.com/steipete/CodexBar/tree/cc8da27cec92029a6435bfee4a703a719290234e).

@@ -76,7 +76,7 @@ test("openai usage totals do not double-count the audio token subsets", async ()
   }
 });
 
-test("kimi adapter skips windows with an unrecognized time unit", async () => {
+test("kimi adapter fails loudly on an unrecognized time unit", async () => {
   const payload = {
     usage: { limit: "100", used: "10", remaining: "90" },
     limits: [
@@ -91,23 +91,15 @@ test("kimi adapter skips windows with an unrecognized time unit", async () => {
     ],
   };
   const mock = mockFetch(() => jsonResponse(200, payload));
-  const warnings = [];
-  const originalWarn = console.warn;
-  console.warn = (message) => warnings.push(String(message));
   try {
     const result = await collectKimiUsage({
       KIMI_CODE_API_KEY: "synthetic-key",
       KIMI_CODE_HOME: "/nonexistent-kimi-home",
     });
-    assert.equal(result.state, "ready");
-    assert.deepEqual(
-      result.windows.map((window) => window.id),
-      ["five_hour", "weekly"],
-    );
-    assert.equal(warnings.length, 1);
-    assert.match(warnings[0], /TIME_UNIT_FORTNIGHT/);
+    assert.equal(result.state, "error");
+    assert.deepEqual(result.windows, []);
+    assert.match(result.message, /TIME_UNIT_FORTNIGHT/);
   } finally {
-    console.warn = originalWarn;
     mock.restore();
   }
 });

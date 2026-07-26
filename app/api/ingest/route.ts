@@ -46,13 +46,17 @@ export async function POST(request: Request) {
   // A pusher's self-reported clock must not write history in the future.
   const clampToReceivedAt = (value: string) =>
     Date.parse(value) > receivedAtMs ? receivedAt : value;
-  const captureBucket = Math.floor(
-    Date.parse(clampToReceivedAt(snapshot.generatedAt)) / 300_000,
-  );
+  const snapshotGeneratedAt = clampToReceivedAt(snapshot.generatedAt);
   const db = getDb();
 
   for (const provider of snapshot.providers) {
-    let storedProvider = provider;
+    const providerCapturedAt = clampToReceivedAt(
+      provider.updatedAt || snapshotGeneratedAt,
+    );
+    let storedProvider = {
+      ...provider,
+      updatedAt: providerCapturedAt,
+    };
     const isTransientRateLimit =
       provider.state === "error" &&
       /(?:HTTP\s*)?429|rate.?limit|限流/i.test(provider.message || "");
@@ -108,10 +112,10 @@ export async function POST(request: Request) {
           providerId: provider.id,
           windowId: window.id,
           usedPercent: window.usedPercent,
-          capturedAt: clampToReceivedAt(
-            provider.updatedAt || snapshot.generatedAt,
+          capturedAt: providerCapturedAt,
+          captureBucket: Math.floor(
+            Date.parse(providerCapturedAt) / 300_000,
           ),
-          captureBucket,
         })
         .onConflictDoNothing();
     }

@@ -32,9 +32,11 @@ Log in with the official Codex CLI. The adapter reads the existing
 `~/.codex/auth.json` and never modifies it.
 
 The local Token estimate scans `~/.codex/sessions/**/*.jsonl`, but parses only
-`token_count` and `turn_context` model metadata lines. The counting window is
-aligned with the subscription quota cycle embedded in the log events, falling
-back to the past seven days; resumed or forked sessions are deduplicated.
+`token_count`, `turn_context` model metadata, and the `session_meta` IDs and
+relationship fields needed for fork/resume deduplication. The counting window
+is aligned with the subscription quota cycle embedded in the log events,
+falling back to the past seven days; resumed or forked sessions are
+deduplicated.
 Disable it with:
 
 ```bash
@@ -90,7 +92,9 @@ USAGE_HUB_PROVIDERS=codex,kimi,openrouter,deepseek
 ### macOS menu bar
 
 The menu bar companion reads `http://127.0.0.1:4317/api/usage` and therefore
-requires the local collector to be running.
+needs a local collector. The packaged app built below includes and starts that
+collector automatically; only `npm run menubar` development runs require a
+separate `npm run collector` process.
 
 ```bash
 npm run build:menubar
@@ -109,6 +113,15 @@ limits.
 ```text
 USAGE_HUB_CODEX_WEEKLY_TOKEN_CAPACITY=
 USAGE_HUB_KIMI_WEEKLY_TOKEN_CAPACITY=
+```
+
+The helper command atomically updates only the selected capacity assignment in
+the private local env file, preserving comments and other credential lines. It
+also respects `USAGE_HUB_ENV_FILE`:
+
+```bash
+npm run configure:capacity -- kimi 10000000
+npm run configure:capacity -- kimi clear
 ```
 
 ## Optional Cloudflare deployment
