@@ -162,16 +162,18 @@ receiving a fabricated zero.
 ## macOS menu bar
 
 The packaged native companion starts its bundled loopback collector and reads
-it every 60 seconds. Provider APIs are polled at most once every five minutes;
-transient failures get one short retry and then retain the last-good snapshot
-during backoff. It shows the primary quota percentage for up to three providers
-directly in the menu bar. Provider health is stated inline: `旧` marks a stale
-snapshot and `异常` marks a provider error, instead of using an ambiguous
-trailing exclamation mark. Its popover shows every returned quota window and
-reset time, balances, freshness, today's observed input + output total when
-available, and up to three model token totals per provider. Official API totals,
-local-log observations, and quota-based estimates retain their distinct labels.
-It does not read or store provider credentials.
+it every 60 seconds. Normal provider API polls run at most once every five
+minutes; transient failures get one short retry and then retain the last-good
+snapshot during backoff. Manual refresh may make one immediate recovery attempt
+after an authentication or missing-configuration result, but cannot bypass the
+cooldown for ready data or transient failures. It shows the primary quota
+percentage for up to three providers directly in the menu bar. Provider health
+is stated inline: `旧` marks a stale snapshot and `异常` marks a provider error,
+instead of using an ambiguous trailing exclamation mark. Its popover shows every
+returned quota window and reset time, balances, freshness, today's observed
+input + output total when available, and up to three model token totals per
+provider. Official API totals, local-log observations, and quota-based estimates
+retain their distinct labels. It does not read or store provider credentials.
 
 ### Build and use it locally
 

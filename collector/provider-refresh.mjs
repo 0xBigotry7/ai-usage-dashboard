@@ -78,20 +78,36 @@ export function createProviderRefreshCoordinator({
     return result;
   }
 
-  async function collectAdapter(adapter, env) {
+  async function collectAdapter(adapter, env, force) {
     const state = providerState.get(adapter.id) || {
       failureCount: 0,
       lastReady: null,
       lastResult: null,
+      nextManualAttemptAt: 0,
       nextAttemptAt: 0,
     };
     providerState.set(adapter.id, state);
 
-    if (state.lastResult && currentTime() < state.nextAttemptAt) {
+    const intervalMs = adapter.pollIntervalMs || pollIntervalMs;
+    const nowMs = currentTime();
+    const configurationFailure =
+      state.lastResult?.state === "auth_error" ||
+      state.lastResult?.state === "needs_configuration";
+    const canRetryConfiguration =
+      force &&
+      configurationFailure &&
+      nowMs >= state.nextManualAttemptAt;
+    if (
+      state.lastResult &&
+      nowMs < state.nextAttemptAt &&
+      !canRetryConfiguration
+    ) {
       return state.lastResult;
     }
+    if (force && configurationFailure) {
+      state.nextManualAttemptAt = nowMs + intervalMs;
+    }
 
-    const intervalMs = adapter.pollIntervalMs || pollIntervalMs;
     let result = await collectOnce(adapter, env);
     if (!isTransientError(result)) {
       return acceptResult(state, result, intervalMs);
@@ -126,8 +142,10 @@ export function createProviderRefreshCoordinator({
   }
 
   return {
-    async collect(adapters, env = process.env) {
-      return Promise.all(adapters.map((adapter) => collectAdapter(adapter, env)));
+    async collect(adapters, env = process.env, { force = false } = {}) {
+      return Promise.all(
+        adapters.map((adapter) => collectAdapter(adapter, env, force)),
+      );
     },
   };
 }

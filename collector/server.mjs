@@ -137,11 +137,13 @@ async function pushRemoteSnapshot(snapshot) {
   }
 }
 
-async function refresh() {
+async function refresh({ forceLocal = false } = {}) {
   if (refreshPromise) return refreshPromise;
   refreshPromise = (async () => {
     await loadPrivateEnvironment();
-    const localProviders = await collectLocalProviders(process.env);
+    const localProviders = await collectLocalProviders(process.env, {
+      force: forceLocal,
+    });
     const remoteProviders = await collectRemoteSnapshotProviders(
       process.env,
       localProviders.map((provider) => provider.id),
@@ -255,7 +257,7 @@ const server = createServer(async (request, response) => {
         sendJson(response, 403, { error: "origin_not_allowed" }, origin);
         return;
       }
-      sendJson(response, 200, await refresh(), origin);
+      sendJson(response, 200, await refresh({ forceLocal: true }), origin);
       return;
     }
     sendJson(response, 404, { error: "Not found" }, origin);

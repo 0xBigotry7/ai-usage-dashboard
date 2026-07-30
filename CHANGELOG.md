@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.3] - 2026-07-30
+
+### Fixed
+
+- Manual refresh can make one immediate recovery attempt after an
+  authentication or missing-configuration result, then remains under the
+  normal five-minute cooldown. Ready data and transient-error backoff cannot be
+  bypassed by repeatedly refreshing.
+- History timestamp coverage no longer depends on the calendar date when the
+  tests run.
+
 ## [0.8.2] - 2026-07-30
 
 ### Changed
@@ -123,7 +134,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   receipt time, so a pusher with a skewed clock cannot write history rows
   dated in the future.
 
-[Unreleased]: https://github.com/0xBigotry7/ai-usage-dashboard/compare/v0.8.2...HEAD
+[Unreleased]: https://github.com/0xBigotry7/ai-usage-dashboard/compare/v0.8.3...HEAD
+[0.8.3]: https://github.com/0xBigotry7/ai-usage-dashboard/releases/tag/v0.8.3
 [0.8.2]: https://github.com/0xBigotry7/ai-usage-dashboard/releases/tag/v0.8.2
 [0.8.1]: https://github.com/0xBigotry7/ai-usage-dashboard/releases/tag/v0.8.1
 [0.8.0]: https://github.com/0xBigotry7/ai-usage-dashboard/releases/tag/v0.8.0
