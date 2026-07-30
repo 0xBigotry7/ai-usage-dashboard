@@ -216,7 +216,7 @@ and only credential-free normalized values are stored.
 | `USAGE_HUB_KIMI_WEEKLY_TOKEN_CAPACITY` | local collector | Optional Kimi quota-conversion calibration; unset disables the converted estimate |
 | `USAGE_HUB_HOST` | local collector | Optional bind address (default `127.0.0.1`) |
 | `USAGE_HUB_PORT` | local collector | Optional bind port (default `4317`) |
-| `USAGE_HUB_POLL_INTERVAL_MS` | local collector | Optional refresh interval in ms (default `60000`, minimum `30000`) |
+| `USAGE_HUB_POLL_INTERVAL_MS` | local collector | Optional local scheduler tick in ms (default `60000`, minimum `30000`); provider APIs are independently capped at one request per five minutes |
 | `USAGE_HUB_DB` | local collector | Optional local history database path |
 | `USAGE_HUB_ENV_FILE` | local collector | Optional private env file path |
 | `INGEST_TOKEN` | hosted Worker | Secret accepted by `/api/ingest` |
