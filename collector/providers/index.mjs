@@ -72,6 +72,6 @@ export function providerCatalog(env = process.env) {
   }));
 }
 
-export async function collectLocalProviders(env = process.env) {
-  return refreshCoordinator.collect(enabledAdapters(env), env);
+export async function collectLocalProviders(env = process.env, options = {}) {
+  return refreshCoordinator.collect(enabledAdapters(env), env, options);
 }

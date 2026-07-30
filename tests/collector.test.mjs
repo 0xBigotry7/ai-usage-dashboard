@@ -485,6 +485,74 @@ test("provider refresh coordinator manual refresh respects the normal interval",
   assert.equal(calls, 1);
 });
 
+test("provider refresh coordinator allows one immediate auth recovery attempt", async () => {
+  let now = Date.now();
+  let calls = 0;
+  const coordinator = createProviderRefreshCoordinator({
+    now: () => now,
+    wait: async () => {},
+  });
+  const adapter = {
+    id: "synthetic",
+    name: "Synthetic AI",
+    collect: async () => {
+      calls += 1;
+      if (calls === 1) {
+        return syntheticProvider({
+          state: "auth_error",
+          updatedAt: new Date(now).toISOString(),
+          message: "登录已失效",
+        });
+      }
+      return syntheticProvider({
+        updatedAt: new Date(now).toISOString(),
+      });
+    },
+  };
+
+  const authError = await coordinator.collect([adapter], {});
+  now += 60_000;
+  const recovered = await coordinator.collect([adapter], {}, { force: true });
+
+  assert.equal(authError[0].state, "auth_error");
+  assert.equal(recovered[0].state, "ready");
+  assert.equal(calls, 2);
+});
+
+test("provider refresh coordinator limits repeated manual auth attempts", async () => {
+  let now = Date.now();
+  let calls = 0;
+  const coordinator = createProviderRefreshCoordinator({
+    now: () => now,
+    wait: async () => {},
+  });
+  const adapter = {
+    id: "synthetic",
+    name: "Synthetic AI",
+    collect: async () => {
+      calls += 1;
+      return syntheticProvider({
+        state: "auth_error",
+        updatedAt: new Date(now).toISOString(),
+        message: "登录已失效",
+      });
+    },
+  };
+
+  await coordinator.collect([adapter], {});
+  now += 60_000;
+  await coordinator.collect([adapter], {}, { force: true });
+  now += 60_000;
+  const cooledDown = await coordinator.collect(
+    [adapter],
+    {},
+    { force: true },
+  );
+
+  assert.equal(cooledDown[0].state, "auth_error");
+  assert.equal(calls, 2);
+});
+
 test("fetchJson exposes the safe low-level connection error code", async () => {
   const originalFetch = globalThis.fetch;
   const cause = Object.assign(new Error("socket reset"), {
@@ -507,26 +575,32 @@ test("fetchJson exposes the safe low-level connection error code", async () => {
 test("history records cached last-good data at its original observation time", () => {
   const directory = mkdtempSync(join(tmpdir(), "usage-history-test-"));
   const history = new HistoryStore(join(directory, "history.db"));
-  const observedAt = "2026-07-30T08:00:00.000Z";
+  const capturedAt = new Date();
+  const observedAt = new Date(
+    capturedAt.getTime() - 30 * 60_000,
+  ).toISOString();
+  const futureAt = new Date(
+    capturedAt.getTime() + 30 * 60_000,
+  ).toISOString();
 
   try {
     history.save(
       [syntheticProvider({ updatedAt: observedAt })],
-      new Date("2026-07-30T08:30:00.000Z"),
+      capturedAt,
     );
     history.save(
       [
         syntheticProvider({
-          updatedAt: "2026-07-30T09:00:00.000Z",
+          updatedAt: futureAt,
         }),
       ],
-      new Date("2026-07-30T08:30:00.000Z"),
+      capturedAt,
     );
-    const rows = history.recent(24 * 31);
+    const rows = history.recent(24);
 
     assert.equal(rows.length, 2);
     assert.equal(rows[0].capturedAt, observedAt);
-    assert.equal(rows[1].capturedAt, "2026-07-30T08:30:00.000Z");
+    assert.equal(rows[1].capturedAt, capturedAt.toISOString());
   } finally {
     history.close();
     rmSync(directory, { recursive: true, force: true });
@@ -920,7 +994,7 @@ test("merges independently pushed provider rows without exposing legacy payloads
     merged.providers.map((provider) => provider.id),
     ["codex", "example-ai"],
   );
-  assert.equal(merged.collector.version, "0.8.2");
+  assert.equal(merged.collector.version, "0.8.3");
   assert.equal(merged.collector.syncMode, "multi-host-sanitized-push");
   assert.doesNotMatch(JSON.stringify(merged), /must-not-appear|accessToken/);
 });
