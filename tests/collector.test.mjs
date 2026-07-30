@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 import { normalizeCodexUsage } from "../collector/providers/codex.mjs";
 import { normalizeDeepSeekBalance } from "../collector/providers/deepseek.mjs";
@@ -7,6 +10,7 @@ import { normalizeKimiUsage } from "../collector/providers/kimi.mjs";
 import { normalizeOpenAIAdminUsage } from "../collector/providers/openai-api.mjs";
 import { normalizeOpenRouterUsage } from "../collector/providers/openrouter.mjs";
 import { providerCatalog } from "../collector/providers/index.mjs";
+import { createProviderRefreshCoordinator } from "../collector/provider-refresh.mjs";
 import { estimateWeeklyQuotaTokens } from "../collector/quota-estimate.mjs";
 import {
   mergeRemoteProviderRows,
@@ -14,6 +18,8 @@ import {
 } from "../lib/remote-usage.ts";
 import { estimateNextResetAt } from "../lib/reset-estimate.ts";
 import { summarizeTokenCountRecords } from "../collector/session-log-estimate.mjs";
+import { fetchJson } from "../collector/shared.mjs";
+import { HistoryStore } from "../collector/history.mjs";
 
 test("estimates a missing reset from the latest observed quota drop", () => {
   const resetsAt = estimateNextResetAt({
@@ -232,6 +238,299 @@ test("enables optional providers only after their local configuration exists", (
       .map(({ id }) => id),
     ["codex", "kimi", "openrouter", "deepseek"],
   );
+});
+
+function syntheticProvider({
+  state = "ready",
+  updatedAt = "2026-07-30T08:00:00.000Z",
+  message = null,
+} = {}) {
+  return {
+    id: "synthetic",
+    name: "Synthetic AI",
+    shortName: "SY",
+    accent: "#7bf1a8",
+    state,
+    plan: "Test",
+    source: "Synthetic API",
+    updatedAt,
+    windows:
+      state === "ready"
+        ? [
+            {
+              id: "weekly",
+              label: "本周",
+              durationSeconds: 604_800,
+              usedPercent: 42,
+              used: null,
+              limit: null,
+              remaining: null,
+              resetsAt: null,
+            },
+          ]
+        : [],
+    balance: null,
+    message,
+    tokenUsage:
+      state === "ready"
+        ? {
+            basis: "quota_percentage",
+            estimated: true,
+            totalTokens: 4_200_000,
+            models: [],
+          }
+        : null,
+  };
+}
+
+test("provider refresh coordinator reuses ready data until five minutes pass", async () => {
+  let now = Date.parse("2026-07-30T08:00:00.000Z");
+  let calls = 0;
+  const coordinator = createProviderRefreshCoordinator({
+    now: () => now,
+    wait: async () => {},
+  });
+  const adapter = {
+    id: "synthetic",
+    name: "Synthetic AI",
+    collect: async () => {
+      calls += 1;
+      return syntheticProvider();
+    },
+  };
+
+  const first = await coordinator.collect([adapter], {});
+  now += 60_000;
+  const cached = await coordinator.collect([adapter], {});
+  now += 4 * 60_000;
+  const refreshed = await coordinator.collect([adapter], {});
+
+  assert.equal(first[0].state, "ready");
+  assert.equal(cached[0].state, "ready");
+  assert.equal(refreshed[0].state, "ready");
+  assert.equal(calls, 2);
+});
+
+test("provider refresh coordinator retries one transient failure before degrading", async () => {
+  let now = Date.parse("2026-07-30T08:00:00.000Z");
+  let calls = 0;
+  const waits = [];
+  const coordinator = createProviderRefreshCoordinator({
+    now: () => now,
+    wait: async (milliseconds) => {
+      waits.push(milliseconds);
+      now += milliseconds;
+    },
+  });
+  const adapter = {
+    id: "synthetic",
+    name: "Synthetic AI",
+    collect: async () => {
+      calls += 1;
+      if (calls === 2) {
+        return syntheticProvider({
+          state: "error",
+          updatedAt: new Date(now).toISOString(),
+          message: "连接超时（UND_ERR_CONNECT_TIMEOUT）",
+        });
+      }
+      return syntheticProvider({
+        updatedAt: new Date(now).toISOString(),
+      });
+    },
+  };
+
+  await coordinator.collect([adapter], {});
+  now += 5 * 60_000;
+  const recovered = await coordinator.collect([adapter], {});
+
+  assert.equal(recovered[0].state, "ready");
+  assert.equal(calls, 3);
+  assert.deepEqual(waits, [3_000]);
+});
+
+test("provider refresh coordinator keeps last-good data through two failed cycles", async () => {
+  let now = Date.parse("2026-07-30T08:00:00.000Z");
+  let calls = 0;
+  const coordinator = createProviderRefreshCoordinator({
+    now: () => now,
+    wait: async (milliseconds) => {
+      now += milliseconds;
+    },
+  });
+  const adapter = {
+    id: "synthetic",
+    name: "Synthetic AI",
+    collect: async () => {
+      calls += 1;
+      if (calls === 1) return syntheticProvider();
+      return syntheticProvider({
+        state: "error",
+        updatedAt: new Date(now).toISOString(),
+        message: "fetch failed（ECONNRESET）",
+      });
+    },
+  };
+
+  const initial = await coordinator.collect([adapter], {});
+  now += 5 * 60_000;
+  const firstFailure = await coordinator.collect([adapter], {});
+  now += 60_000;
+  const duringBackoff = await coordinator.collect([adapter], {});
+  now += 60_000;
+  const secondFailure = await coordinator.collect([adapter], {});
+
+  assert.equal(firstFailure[0].state, "ready");
+  assert.equal(firstFailure[0].updatedAt, initial[0].updatedAt);
+  assert.equal(firstFailure[0].windows[0].usedPercent, 42);
+  assert.equal(firstFailure[0].tokenUsage.totalTokens, 4_200_000);
+  assert.match(firstFailure[0].message, /旧数据 · 重试中/);
+  assert.equal(duringBackoff[0], firstFailure[0]);
+  assert.equal(secondFailure[0].state, "ready");
+  assert.equal(calls, 5);
+});
+
+test("provider refresh coordinator shows a transient error on the third failed cycle", async () => {
+  let now = Date.parse("2026-07-30T08:00:00.000Z");
+  let calls = 0;
+  const coordinator = createProviderRefreshCoordinator({
+    now: () => now,
+    wait: async (milliseconds) => {
+      now += milliseconds;
+    },
+  });
+  const adapter = {
+    id: "synthetic",
+    name: "Synthetic AI",
+    collect: async () => {
+      calls += 1;
+      if (calls === 1) return syntheticProvider();
+      return syntheticProvider({
+        state: "error",
+        updatedAt: new Date(now).toISOString(),
+        message: "HTTP 429",
+      });
+    },
+  };
+
+  await coordinator.collect([adapter], {});
+  now += 5 * 60_000;
+  await coordinator.collect([adapter], {});
+  now += 2 * 60_000;
+  await coordinator.collect([adapter], {});
+  now += 5 * 60_000;
+  const thirdFailure = await coordinator.collect([adapter], {});
+
+  assert.equal(thirdFailure[0].state, "error");
+  assert.equal(thirdFailure[0].message, "HTTP 429");
+  assert.equal(calls, 7);
+});
+
+test("provider refresh coordinator exposes auth errors immediately without retry", async () => {
+  let now = Date.parse("2026-07-30T08:00:00.000Z");
+  let calls = 0;
+  let waits = 0;
+  const coordinator = createProviderRefreshCoordinator({
+    now: () => now,
+    wait: async () => {
+      waits += 1;
+    },
+  });
+  const adapter = {
+    id: "synthetic",
+    name: "Synthetic AI",
+    collect: async () => {
+      calls += 1;
+      if (calls === 1) return syntheticProvider();
+      return syntheticProvider({
+        state: "auth_error",
+        updatedAt: new Date(now).toISOString(),
+        message: "登录已失效",
+      });
+    },
+  };
+
+  await coordinator.collect([adapter], {});
+  now += 5 * 60_000;
+  const authError = await coordinator.collect([adapter], {});
+
+  assert.equal(authError[0].state, "auth_error");
+  assert.equal(authError[0].message, "登录已失效");
+  assert.equal(calls, 2);
+  assert.equal(waits, 0);
+});
+
+test("provider refresh coordinator manual refresh respects the normal interval", async () => {
+  let now = Date.parse("2026-07-30T08:00:00.000Z");
+  let calls = 0;
+  const coordinator = createProviderRefreshCoordinator({
+    now: () => now,
+    wait: async () => {},
+  });
+  const adapter = {
+    id: "synthetic",
+    name: "Synthetic AI",
+    collect: async () => {
+      calls += 1;
+      return syntheticProvider({
+        updatedAt: new Date(now).toISOString(),
+      });
+    },
+  };
+
+  await coordinator.collect([adapter], {});
+  now += 60_000;
+  await coordinator.collect([adapter], {}, { force: true });
+
+  assert.equal(calls, 1);
+});
+
+test("fetchJson exposes the safe low-level connection error code", async () => {
+  const originalFetch = globalThis.fetch;
+  const cause = Object.assign(new Error("socket reset"), {
+    code: "ECONNRESET",
+  });
+  globalThis.fetch = async () => {
+    throw new TypeError("fetch failed", { cause });
+  };
+
+  try {
+    await assert.rejects(
+      fetchJson("https://example.invalid/usage"),
+      /连接被重置（ECONNRESET）/,
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("history records cached last-good data at its original observation time", () => {
+  const directory = mkdtempSync(join(tmpdir(), "usage-history-test-"));
+  const history = new HistoryStore(join(directory, "history.db"));
+  const observedAt = "2026-07-30T08:00:00.000Z";
+
+  try {
+    history.save(
+      [syntheticProvider({ updatedAt: observedAt })],
+      new Date("2026-07-30T08:30:00.000Z"),
+    );
+    history.save(
+      [
+        syntheticProvider({
+          updatedAt: "2026-07-30T09:00:00.000Z",
+        }),
+      ],
+      new Date("2026-07-30T08:30:00.000Z"),
+    );
+    const rows = history.recent(24 * 31);
+
+    assert.equal(rows.length, 2);
+    assert.equal(rows[0].capturedAt, observedAt);
+    assert.equal(rows[1].capturedAt, "2026-07-30T08:30:00.000Z");
+  } finally {
+    history.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test("estimates weekly token equivalents without double-counting scoped models", () => {
@@ -621,7 +920,7 @@ test("merges independently pushed provider rows without exposing legacy payloads
     merged.providers.map((provider) => provider.id),
     ["codex", "example-ai"],
   );
-  assert.equal(merged.collector.version, "0.8.1");
+  assert.equal(merged.collector.version, "0.8.2");
   assert.equal(merged.collector.syncMode, "multi-host-sanitized-push");
   assert.doesNotMatch(JSON.stringify(merged), /must-not-appear|accessToken/);
 });

@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.2] - 2026-07-30
+
+### Changed
+
+- Provider APIs are polled at most once every five minutes while the menu bar
+  and browser continue reading the local cache every 60 seconds.
+- Transient failures receive one short retry followed by a 2 / 5 / 10 /
+  30-minute backoff. Authentication failures are still shown immediately.
+
+### Fixed
+
+- A single timeout, connection reset, or HTTP 429 no longer clears a provider
+  card. The first two failed cycles retain the last successful quota and token
+  snapshot with its original timestamp; the third failed cycle shows the error.
+- Low-level DNS, connection, and timeout codes are preserved in safe collector
+  error messages instead of being reduced to `fetch failed`.
+- Cached last-good values keep their original observation time in local
+  history, preventing stale values from being recorded as fresh samples.
+
 ## [0.8.1] - 2026-07-26
 
 ### Added
@@ -104,6 +123,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   receipt time, so a pusher with a skewed clock cannot write history rows
   dated in the future.
 
-[Unreleased]: https://github.com/0xBigotry7/ai-usage-dashboard/compare/v0.8.1...HEAD
+[Unreleased]: https://github.com/0xBigotry7/ai-usage-dashboard/compare/v0.8.2...HEAD
+[0.8.2]: https://github.com/0xBigotry7/ai-usage-dashboard/releases/tag/v0.8.2
 [0.8.1]: https://github.com/0xBigotry7/ai-usage-dashboard/releases/tag/v0.8.1
 [0.8.0]: https://github.com/0xBigotry7/ai-usage-dashboard/releases/tag/v0.8.0

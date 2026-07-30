@@ -51,10 +51,19 @@ export class HistoryStore {
   save(providers, capturedAt = new Date()) {
     // Drop rows older than 31 days so local history stays bounded.
     this.prune.run(new Date(Date.now() - 31 * 24 * 3600_000).toISOString());
-    const capturedIso = capturedAt.toISOString();
-    const fiveMinuteBucket = Math.floor(capturedAt.getTime() / 300_000);
+    const fallbackTime =
+      capturedAt instanceof Date && !Number.isNaN(capturedAt.getTime())
+        ? capturedAt
+        : new Date();
     for (const provider of providers) {
       if (provider.state !== "ready") continue;
+      const providerTime = new Date(provider.updatedAt);
+      const observationTime =
+        !Number.isNaN(providerTime.getTime()) && providerTime <= fallbackTime
+          ? providerTime
+          : fallbackTime;
+      const capturedIso = observationTime.toISOString();
+      const fiveMinuteBucket = Math.floor(observationTime.getTime() / 300_000);
       for (const window of provider.windows) {
         this.insert.run(
           provider.id,

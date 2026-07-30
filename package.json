@@ -1,6 +1,6 @@
 {
   "name": "ai-usage-dashboard",
-  "version": "0.8.1",
+  "version": "0.8.2",
   "description": "A local-first AI quota, API usage, token, and macOS menu bar dashboard.",
   "private": true,
   "license": "MIT",

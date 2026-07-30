@@ -70,6 +70,23 @@ export function resolveHomePath(path) {
   return resolve(path);
 }
 
+function detailedNetworkError(error) {
+  const code = error?.cause?.code || error?.code;
+  if (!code) return null;
+  const normalized = String(code).toUpperCase();
+  let label = "网络连接失败";
+  if (normalized === "ECONNRESET") label = "连接被重置";
+  else if (normalized === "ECONNREFUSED") label = "连接被拒绝";
+  else if (normalized === "ENOTFOUND" || normalized === "EAI_AGAIN") {
+    label = "DNS 解析失败";
+  } else if (normalized.includes("TIMEOUT") || normalized === "ETIMEDOUT") {
+    label = "连接超时";
+  }
+  const detailed = new Error(`${label}（${normalized}）`, { cause: error });
+  detailed.code = normalized;
+  return detailed;
+}
+
 export async function fetchJson(url, options = {}, timeoutMs = 20_000) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -98,6 +115,8 @@ export async function fetchJson(url, options = {}, timeoutMs = 20_000) {
     if (error?.name === "AbortError") {
       throw new Error("连接超时");
     }
+    const detailed = detailedNetworkError(error);
+    if (detailed) throw detailed;
     throw error;
   } finally {
     clearTimeout(timer);
@@ -107,6 +126,9 @@ export async function fetchJson(url, options = {}, timeoutMs = 20_000) {
 export function providerError(provider, error, source, updatedAt = new Date().toISOString()) {
   const status = error?.status;
   const authError = status === 401 || status === 403;
+  const retryable =
+    !authError &&
+    (!status || status === 408 || status === 429 || status >= 500);
   return {
     id: provider.id,
     name: provider.name,
@@ -121,5 +143,6 @@ export function providerError(provider, error, source, updatedAt = new Date().to
     message: authError
       ? provider.authMessage
       : error?.message || "暂时无法取得配额数据",
+    retryable,
   };
 }
