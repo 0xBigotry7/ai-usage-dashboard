@@ -9,6 +9,18 @@ updates:
         update-types:
           - minor
           - patch
+    ignore:
+      # eslint 10 is blocked until eslint-config-next and its plugin
+      # ecosystem support it (peer deps cap at eslint 9).
+      - dependency-name: eslint
+        update-types: ["version-update:semver-major"]
+      # typescript 7.x is the native-compiler preview; the toolchain
+      # (eslint-config-next, vinext) is not compatible yet.
+      - dependency-name: typescript
+        update-types: ["version-update:semver-major"]
+      # @types/node follows the runtime major we target (Node 22 floor).
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
