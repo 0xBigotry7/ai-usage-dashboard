@@ -7,6 +7,7 @@ import test from "node:test";
 async function readDashboardSources() {
   const files = [
     new URL("../app/usage-dashboard.tsx", import.meta.url),
+    new URL("../lib/copy-summary.ts", import.meta.url),
     new URL("../lib/format.ts", import.meta.url),
     new URL("../lib/provider-selectors.ts", import.meta.url),
     new URL("../lib/usage-types.ts", import.meta.url),
