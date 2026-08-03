@@ -106,6 +106,8 @@ export async function POST(request: Request) {
 
     if (provider.state !== "ready") continue;
     for (const window of provider.windows) {
+      // A null usedPercent carries no trend information; skip the dead row.
+      if (window.usedPercent === null) continue;
       await db
         .insert(remoteUsageHistory)
         .values({
