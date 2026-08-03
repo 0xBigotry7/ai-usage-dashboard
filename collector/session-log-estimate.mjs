@@ -2,9 +2,28 @@ import { createReadStream } from "node:fs";
 import { opendir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
-import { createInterface } from "node:readline";
 
 const WEEK_SECONDS = 7 * 24 * 60 * 60;
+
+// A corrupted file without a newline would otherwise be buffered into memory
+// as one enormous "line" before it could be rejected. Longer lines are
+// discarded while streaming and reported so the estimate is marked
+// approximate.
+const MAX_LINE_LENGTH = 4 * 1024 * 1024;
+
+// Per-file parse cache. Rollout files are append-only, so a file whose size
+// and mtime both match the previous scan yields exactly the records it
+// yielded last time; re-reading it is pure waste. Entries for files the
+// latest scan did not visit (outside the mtime window and not referenced as
+// an ancestor, or deleted) are evicted so the cache stays bounded.
+const fileCache = new Map();
+let lastScanHits = 0;
+let lastScanMisses = 0;
+
+// Test hook: cache occupancy plus hit/miss counters for the most recent scan.
+export function _cacheStats() {
+  return { files: fileCache.size, hits: lastScanHits, misses: lastScanMisses };
+}
 
 // Cheap pre-filter before JSON.parse; JSON allows whitespace around the
 // colon, so a bare '"type":"token_count"' substring match misses pretty
@@ -80,16 +99,59 @@ function rolloutIdForPath(path) {
   );
 }
 
+// Streams a JSONL file line by line while never holding more than one
+// bounded line in memory. Lines longer than MAX_LINE_LENGTH are dropped as
+// they stream past and reported once each through onOversizedLine.
+async function* boundedJsonlLines(path, onOversizedLine) {
+  const input = createReadStream(path, {
+    encoding: "utf8",
+    highWaterMark: 256 * 1024,
+  });
+  let tail = "";
+  let skippingOversized = false;
+  try {
+    for await (const chunk of input) {
+      const pieces = (tail + chunk).split("\n");
+      tail = pieces.pop();
+      for (const piece of pieces) {
+        if (skippingOversized) {
+          // This newline terminates the line that already blew the limit.
+          skippingOversized = false;
+          onOversizedLine();
+        } else if (piece.length > MAX_LINE_LENGTH) {
+          onOversizedLine();
+        } else {
+          yield piece.endsWith("\r") ? piece.slice(0, -1) : piece;
+        }
+      }
+      if (skippingOversized) {
+        tail = "";
+      } else if (tail.length > MAX_LINE_LENGTH) {
+        tail = "";
+        skippingOversized = true;
+      }
+    }
+  } finally {
+    input.destroy();
+  }
+  if (skippingOversized || tail.length > MAX_LINE_LENGTH) {
+    onOversizedLine();
+  } else if (tail) {
+    yield tail;
+  }
+}
+
 async function readTokenCountRecords(path) {
   const records = [];
   const rolloutId = rolloutIdForPath(path);
   let model = "Codex";
   let inheritedCounter = null;
   let parentRolloutId = null;
-  const input = createReadStream(path, { encoding: "utf8" });
-  const lines = createInterface({ input, crlfDelay: Infinity });
+  let oversizedLines = 0;
 
-  for await (const line of lines) {
+  for await (const line of boundedJsonlLines(path, () => {
+    oversizedLines += 1;
+  })) {
     if (!TOKEN_EVENT_PATTERN.test(line)) continue;
     let event;
     try {
@@ -180,7 +242,7 @@ async function readTokenCountRecords(path) {
       model,
     });
   }
-  return { rolloutId, parentRolloutId, records };
+  return { rolloutId, parentRolloutId, records, oversizedLines };
 }
 
 function cumulativeStateKey(record) {
@@ -545,14 +607,14 @@ function sessionLogEstimate(
   periodSeconds,
   periodId,
   assumption,
-  coverageIncomplete,
+  coverageNote,
 ) {
   if (summary.totalTokens === 0) return null;
   return {
     basis: "session_logs",
     periodId,
     scope: "local_device",
-    estimated: coverageIncomplete,
+    estimated: Boolean(coverageNote),
     totalTokens: summary.totalTokens,
     inputTokens: summary.inputTokens,
     cachedInputTokens: summary.cachedInputTokens,
@@ -562,9 +624,7 @@ function sessionLogEstimate(
     periodStartAt: new Date(sinceMs).toISOString(),
     sessionCount: summary.sessionCount,
     models: summary.models,
-    assumption: coverageIncomplete
-      ? `${assumption} Some logs or ancestor rollouts could not be fully read, so this is marked as approximate.`
-      : assumption,
+    assumption: coverageNote ? `${assumption} ${coverageNote}` : assumption,
   };
 }
 
@@ -580,13 +640,16 @@ export async function estimateCodexSessionLogTokenEstimates(
   const codexHome = env.CODEX_HOME || join(homedir(), ".codex");
   const records = [];
   const pathsByRollout = new Map();
+  const statByPath = new Map();
   const recentPaths = [];
   let coverageIncomplete = false;
+  let oversizedLineCount = 0;
 
   for await (const path of jsonlFiles(join(codexHome, "sessions"))) {
     try {
       const metadata = await stat(path);
       pathsByRollout.set(rolloutIdForPath(path), path);
+      statByPath.set(path, { size: metadata.size, mtimeMs: metadata.mtimeMs });
       if (metadata.mtimeMs >= fallbackSinceMs) recentPaths.push(path);
     } catch (error) {
       coverageIncomplete = true;
@@ -602,16 +665,41 @@ export async function estimateCodexSessionLogTokenEstimates(
   // timestamps. Load referenced ancestors even when their file mtime is older
   // than the reporting window so those states can be removed before daily or
   // weekly aggregation.
+  lastScanHits = 0;
+  lastScanMisses = 0;
   const pendingPaths = [...recentPaths];
   const readRollouts = new Set();
+  const visitedPaths = new Set();
   while (pendingPaths.length) {
     const path = pendingPaths.pop();
     const rolloutId = rolloutIdForPath(path);
     if (readRollouts.has(rolloutId)) continue;
     readRollouts.add(rolloutId);
     try {
-      const result = await readTokenCountRecords(path);
-      records.push(...result.records);
+      const metadata = statByPath.get(path);
+      const cached = fileCache.get(path);
+      let result;
+      if (
+        cached &&
+        metadata &&
+        cached.size === metadata.size &&
+        cached.mtimeMs === metadata.mtimeMs
+      ) {
+        lastScanHits += 1;
+        result = cached.result;
+      } else {
+        lastScanMisses += 1;
+        result = await readTokenCountRecords(path);
+        // The size/mtime pair predates the read; if the file grew in
+        // between, the next scan's stat differs from it and re-parses. The
+        // stale direction (cache hit on changed content) cannot happen.
+        if (metadata) {
+          fileCache.set(path, { ...metadata, result });
+        }
+      }
+      visitedPaths.add(path);
+      for (const record of result.records) records.push(record);
+      oversizedLineCount += result.oversizedLines;
       if (
         result.parentRolloutId &&
         !readRollouts.has(result.parentRolloutId) &&
@@ -625,6 +713,7 @@ export async function estimateCodexSessionLogTokenEstimates(
         coverageIncomplete = true;
       }
     } catch (error) {
+      fileCache.delete(path);
       coverageIncomplete = true;
       if (error?.code !== "ENOENT") {
         console.warn(
@@ -632,6 +721,13 @@ export async function estimateCodexSessionLogTokenEstimates(
         );
       }
     }
+  }
+
+  // Drop cache entries for files this scan did not visit (aged out of the
+  // window without a fork child referencing them, or deleted) so cache
+  // memory stays bounded by the reporting window.
+  for (const path of fileCache.keys()) {
+    if (!visitedPaths.has(path)) fileCache.delete(path);
   }
   const firstRecordByRollout = new Map();
   for (const record of records) {
@@ -677,6 +773,18 @@ export async function estimateCodexSessionLogTokenEstimates(
     }
   }
 
+  const coverageNote =
+    [
+      coverageIncomplete
+        ? "Some logs or ancestor rollouts could not be fully read, so this is marked as approximate."
+        : "",
+      oversizedLineCount > 0
+        ? "Log lines longer than 4MB were skipped as corrupted, so this is marked as approximate."
+        : "",
+    ]
+      .filter(Boolean)
+      .join(" ") || null;
+
   const todaySinceMs = localDayStartMs(now);
   const todaySeconds = Math.max(
     60,
@@ -688,7 +796,7 @@ export async function estimateCodexSessionLogTokenEstimates(
     todaySeconds,
     "today",
     "Counts only this machine's Codex token_count deltas since local midnight; total = input (incl. cached input) + output, where cached input and reasoning output are subsets of input and output and are not added twice; prompts and response bodies are never read or uploaded.",
-    coverageIncomplete,
+    coverageNote,
   );
   const weeklyCycle = sessionLogEstimate(
     summarizeTokenCountRecords(records, sinceMs, now),
@@ -696,7 +804,7 @@ export async function estimateCodexSessionLogTokenEstimates(
     periodSeconds,
     "weekly_cycle",
     "Counts only this machine's Codex session logs, accumulating token_count deltas over the subscription cycle window (aligned with the quota API's weekly window, falling back to the past 7 days when unavailable); total = input (incl. cached input) + output; usage from other devices is not included.",
-    coverageIncomplete,
+    coverageNote,
   );
   return [today, weeklyCycle].filter(Boolean);
 }

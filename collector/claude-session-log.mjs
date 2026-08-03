@@ -2,7 +2,6 @@ import { createReadStream } from "node:fs";
 import { opendir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
-import { createInterface } from "node:readline";
 
 const DAY_MS = 86_400_000;
 const WEEK_SECONDS = 7 * 24 * 60 * 60;
@@ -11,6 +10,27 @@ const WEEK_SECONDS = 7 * 24 * 60 * 60;
 // files, so files are pre-filtered by mtime before any line is read; the one
 // extra day of margin covers records written just before a day boundary.
 const FILE_MTIME_WINDOW_MS = 8 * DAY_MS;
+
+// A corrupted file without a newline would otherwise be buffered into memory
+// as one enormous "line" before it could be rejected. Longer lines are
+// discarded while streaming and reported so the estimate is marked
+// approximate.
+const MAX_LINE_LENGTH = 4 * 1024 * 1024;
+
+// Per-file parse cache. Session logs are append-only, so a file whose size
+// and mtime both match the previous scan yields exactly the entries it
+// yielded last time; re-reading it is pure waste. Entries for files the
+// latest scan did not visit (outside the mtime window, or deleted) are
+// evicted so the cache tracks the reporting window instead of growing
+// forever.
+const fileCache = new Map();
+let lastScanHits = 0;
+let lastScanMisses = 0;
+
+// Test hook: cache occupancy plus hit/miss counters for the most recent scan.
+export function _cacheStats() {
+  return { files: fileCache.size, hits: lastScanHits, misses: lastScanMisses };
+}
 
 export function claudeProjectsDir(env = process.env) {
   const configDir = env.CLAUDE_CONFIG_DIR?.trim() || join(homedir(), ".claude");
@@ -45,64 +65,111 @@ function finiteTokenCount(value) {
   return Math.floor(count);
 }
 
-async function readAssistantUsageRecords(path, dedupedRecords) {
-  const input = createReadStream(path, { encoding: "utf8" });
-  const lines = createInterface({ input, crlfDelay: Infinity });
+// Streams a JSONL file line by line while never holding more than one
+// bounded line in memory. Lines longer than MAX_LINE_LENGTH are dropped as
+// they stream past and reported once each through onOversizedLine.
+async function* boundedJsonlLines(path, onOversizedLine) {
+  const input = createReadStream(path, {
+    encoding: "utf8",
+    highWaterMark: 256 * 1024,
+  });
+  let tail = "";
+  let skippingOversized = false;
+  try {
+    for await (const chunk of input) {
+      const pieces = (tail + chunk).split("\n");
+      tail = pieces.pop();
+      for (const piece of pieces) {
+        if (skippingOversized) {
+          // This newline terminates the line that already blew the limit.
+          skippingOversized = false;
+          onOversizedLine();
+        } else if (piece.length > MAX_LINE_LENGTH) {
+          onOversizedLine();
+        } else {
+          yield piece.endsWith("\r") ? piece.slice(0, -1) : piece;
+        }
+      }
+      if (skippingOversized) {
+        tail = "";
+      } else if (tail.length > MAX_LINE_LENGTH) {
+        tail = "";
+        skippingOversized = true;
+      }
+    }
+  } finally {
+    input.destroy();
+  }
+  if (skippingOversized || tail.length > MAX_LINE_LENGTH) {
+    onOversizedLine();
+  } else if (tail) {
+    yield tail;
+  }
+}
+
+async function readAssistantUsageRecords(path) {
+  const entries = [];
+  let oversizedLines = 0;
   let unkeyedLine = 0;
 
-  try {
-    for await (const line of lines) {
-      // Cheap pre-filter before JSON.parse: only records that carry a
-      // message.usage block are interesting, and all of them contain the
-      // literal key "usage" somewhere in the line.
-      if (!line.includes('"usage"')) continue;
-      let record;
-      try {
-        record = JSON.parse(line);
-      } catch {
-        continue;
-      }
-      if (record?.type !== "assistant") continue;
-      const message = record.message;
-      const usage = message?.usage;
-      if (!usage || typeof usage !== "object") continue;
-      const model = typeof message.model === "string" ? message.model : null;
-      // "<synthetic>" marks locally generated error/placeholder turns that
-      // never reached the API.
-      if (!model || model === "<synthetic>") continue;
-      const timestamp = new Date(record.timestamp).getTime();
-      if (!Number.isFinite(timestamp)) continue;
+  for await (const line of boundedJsonlLines(path, () => {
+    oversizedLines += 1;
+  })) {
+    // Cheap pre-filter before JSON.parse: only records that carry a
+    // message.usage block are interesting, and all of them contain the
+    // literal key "usage" somewhere in the line.
+    if (!line.includes('"usage"')) continue;
+    let record;
+    try {
+      record = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (record?.type !== "assistant") continue;
+    const message = record.message;
+    const usage = message?.usage;
+    if (!usage || typeof usage !== "object") continue;
+    const model = typeof message.model === "string" ? message.model : null;
+    // "<synthetic>" marks locally generated error/placeholder turns that
+    // never reached the API.
+    if (!model || model === "<synthetic>") continue;
+    const timestamp = new Date(record.timestamp).getTime();
+    if (!Number.isFinite(timestamp)) continue;
 
-      const inputTokens = finiteTokenCount(usage.input_tokens);
-      const cacheCreationTokens = finiteTokenCount(
-        usage.cache_creation_input_tokens,
-      );
-      const cacheReadTokens = finiteTokenCount(usage.cache_read_input_tokens);
-      const outputTokens = finiteTokenCount(usage.output_tokens);
-      if (
-        inputTokens === null &&
-        cacheCreationTokens === null &&
-        cacheReadTokens === null &&
-        outputTokens === null
-      ) {
-        continue;
-      }
+    const inputTokens = finiteTokenCount(usage.input_tokens);
+    const cacheCreationTokens = finiteTokenCount(
+      usage.cache_creation_input_tokens,
+    );
+    const cacheReadTokens = finiteTokenCount(usage.cache_read_input_tokens);
+    const outputTokens = finiteTokenCount(usage.output_tokens);
+    if (
+      inputTokens === null &&
+      cacheCreationTokens === null &&
+      cacheReadTokens === null &&
+      outputTokens === null
+    ) {
+      continue;
+    }
 
-      // The same logical API call can be logged more than once (streaming
-      // rewrites, retries, and resumed sessions that replay the transcript
-      // into a new file). Dedupe on requestId plus the message/record id and
-      // keep the last occurrence, which carries the final usage numbers.
-      const messageKey =
-        (typeof message.id === "string" && message.id) ||
-        (typeof record.uuid === "string" && record.uuid) ||
-        null;
-      const requestKey =
-        typeof record.requestId === "string" ? record.requestId : "";
-      const key = messageKey
-        ? `${requestKey}:${messageKey}`
-        : `${path}:${(unkeyedLine += 1)}`;
-      // Subagent (isSidechain) turns consume real tokens and are included.
-      dedupedRecords.set(key, {
+    // The same logical API call can be logged more than once (streaming
+    // rewrites, retries, and resumed sessions that replay the transcript
+    // into a new file). Dedupe on requestId plus the message/record id and
+    // keep the last occurrence, which carries the final usage numbers.
+    const messageKey =
+      (typeof message.id === "string" && message.id) ||
+      (typeof record.uuid === "string" && record.uuid) ||
+      null;
+    const requestKey =
+      typeof record.requestId === "string" ? record.requestId : "";
+    const key = messageKey
+      ? `${requestKey}:${messageKey}`
+      : `${path}:${(unkeyedLine += 1)}`;
+    // Subagent (isSidechain) turns consume real tokens and are included.
+    // Entries stay in file order so replaying them into the shared dedupe
+    // map reproduces exactly what a direct scan produced.
+    entries.push([
+      key,
+      {
         timestamp,
         model,
         sessionId:
@@ -113,12 +180,10 @@ async function readAssistantUsageRecords(path, dedupedRecords) {
         cacheCreationTokens: cacheCreationTokens ?? 0,
         cacheReadTokens: cacheReadTokens ?? 0,
         outputTokens: outputTokens ?? 0,
-      });
-    }
-  } finally {
-    lines.close();
-    input.destroy();
+      },
+    ]);
   }
+  return { entries, oversizedLines };
 }
 
 export function summarizeClaudeUsageRecords(records, sinceMs, untilMs) {
@@ -182,14 +247,14 @@ function sessionLogEstimate(
   periodSeconds,
   periodId,
   assumption,
-  coverageIncomplete,
+  coverageNote,
 ) {
   if (summary.totalTokens === 0) return null;
   return {
     basis: "session_logs",
     periodId,
     scope: "local_device",
-    estimated: coverageIncomplete,
+    estimated: Boolean(coverageNote),
     totalTokens: summary.totalTokens,
     inputTokens: summary.inputTokens,
     cachedInputTokens: summary.cachedInputTokens,
@@ -198,9 +263,7 @@ function sessionLogEstimate(
     periodStartAt: new Date(sinceMs).toISOString(),
     sessionCount: summary.sessionCount,
     models: summary.models,
-    assumption: coverageIncomplete
-      ? `${assumption} Some session log files could not be read, so this total is approximate.`
-      : assumption,
+    assumption: coverageNote ? `${assumption} ${coverageNote}` : assumption,
   };
 }
 
@@ -213,8 +276,9 @@ export async function estimateClaudeSessionLogTokenEstimates(
   }
 
   const dedupedRecords = new Map();
-  const recentPaths = [];
+  const recentFiles = [];
   let unreadableEntries = 0;
+  let oversizedLineCount = 0;
   const countUnreadable = () => {
     unreadableEntries += 1;
   };
@@ -223,28 +287,72 @@ export async function estimateClaudeSessionLogTokenEstimates(
   for await (const path of jsonlFiles(claudeProjectsDir(env), countUnreadable)) {
     try {
       const metadata = await stat(path);
-      if (metadata.mtimeMs >= mtimeCutoffMs) recentPaths.push(path);
+      if (metadata.mtimeMs >= mtimeCutoffMs) {
+        recentFiles.push({
+          path,
+          size: metadata.size,
+          mtimeMs: metadata.mtimeMs,
+        });
+      }
     } catch {
       unreadableEntries += 1;
     }
   }
 
-  for (const path of recentPaths) {
-    try {
-      await readAssistantUsageRecords(path, dedupedRecords);
-    } catch (error) {
-      // A single unreadable file must not abort the walk; count it and mark
-      // the resulting estimates as approximate.
-      unreadableEntries += 1;
-      if (error?.code !== "ENOENT") {
-        console.warn(
-          `Skipping unreadable Claude Code session log: ${basename(path)}`,
-        );
+  lastScanHits = 0;
+  lastScanMisses = 0;
+  for (const { path, size, mtimeMs } of recentFiles) {
+    let cached = fileCache.get(path);
+    if (cached && cached.size === size && cached.mtimeMs === mtimeMs) {
+      lastScanHits += 1;
+    } else {
+      lastScanMisses += 1;
+      try {
+        const parsed = await readAssistantUsageRecords(path);
+        // The size/mtime pair predates the read; if the file grew in
+        // between, the next scan's stat differs from it and re-parses. The
+        // stale direction (cache hit on changed content) cannot happen.
+        cached = { size, mtimeMs, ...parsed };
+        fileCache.set(path, cached);
+      } catch (error) {
+        // A single unreadable file must not abort the walk; count it and
+        // mark the resulting estimates as approximate.
+        fileCache.delete(path);
+        unreadableEntries += 1;
+        if (error?.code !== "ENOENT") {
+          console.warn(
+            `Skipping unreadable Claude Code session log: ${basename(path)}`,
+          );
+        }
+        continue;
       }
     }
+    // Replay in walk order so cross-file "last occurrence wins" dedupe
+    // behaves identically whether entries came from disk or from cache.
+    for (const [key, record] of cached.entries) {
+      dedupedRecords.set(key, record);
+    }
+    oversizedLineCount += cached.oversizedLines;
   }
 
-  const coverageIncomplete = unreadableEntries > 0;
+  // Drop cache entries for files this scan did not visit (aged out of the
+  // mtime window or deleted) so cache memory stays bounded by the window.
+  const visitedPaths = new Set(recentFiles.map((file) => file.path));
+  for (const path of fileCache.keys()) {
+    if (!visitedPaths.has(path)) fileCache.delete(path);
+  }
+
+  const coverageNote =
+    [
+      unreadableEntries > 0
+        ? "Some session log files could not be read, so this total is approximate."
+        : "",
+      oversizedLineCount > 0
+        ? "Log lines longer than 4MB were skipped as corrupted, so this total is approximate."
+        : "",
+    ]
+      .filter(Boolean)
+      .join(" ") || null;
   const records = Array.from(dedupedRecords.values());
 
   const todaySinceMs = localDayStartMs(now);
@@ -255,7 +363,7 @@ export async function estimateClaudeSessionLogTokenEstimates(
     todaySeconds,
     "today",
     "Counts deduplicated per-message usage from this machine's Claude Code session logs since local midnight; total = input (including cache creation and cache reads) + output. Message content is never read.",
-    coverageIncomplete,
+    coverageNote,
   );
   const rollingSinceMs = now - WEEK_SECONDS * 1000;
   const rolling7d = sessionLogEstimate(
@@ -264,7 +372,7 @@ export async function estimateClaudeSessionLogTokenEstimates(
     WEEK_SECONDS,
     "rolling_7d",
     "Counts deduplicated per-message usage from this machine's Claude Code session logs over the trailing 7 days; usage on other devices is not included.",
-    coverageIncomplete,
+    coverageNote,
   );
   return [today, rolling7d].filter(Boolean);
 }

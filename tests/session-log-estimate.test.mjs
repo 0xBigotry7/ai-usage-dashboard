@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { appendFile, mkdtemp, mkdir, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { estimateWeeklyQuotaTokens } from "../collector/quota-estimate.mjs";
 import {
+  _cacheStats,
   estimateCodexSessionLogTokenEstimates,
   estimateCodexSessionLogTokens,
   summarizeTokenCountRecords,
@@ -1057,6 +1058,129 @@ test("falls back to the trailing 7 days when events carry no rate_limits", async
   assert.equal(
     result.estimate.periodStartAt,
     new Date(now - 7 * DAY_MS).toISOString(),
+  );
+});
+
+test("serves warm scans from the per-file cache with identical estimates", async () => {
+  const now = Math.floor(Date.now() / 1000) * 1000;
+  const oldTimestamp = new Date(now - 6 * DAY_MS).toISOString();
+  const recentTimestamp = new Date(now - DAY_MS).toISOString();
+  await withSessionDir(
+    {
+      "rollout-cache.jsonl": [
+        tokenCountLine(oldTimestamp, { total: 1_000, last: 1_000 }),
+        tokenCountLine(recentTimestamp, { total: 1_600, last: 600 }),
+      ],
+    },
+    async (codexHome) => {
+      const env = { CODEX_HOME: codexHome };
+      const cold = await estimateCodexSessionLogTokenEstimates(env, now);
+      const coldStats = _cacheStats();
+      assert.equal(coldStats.files, 1);
+      assert.equal(coldStats.misses, 1);
+      assert.equal(coldStats.hits, 0);
+
+      const warm = await estimateCodexSessionLogTokenEstimates(env, now);
+      const warmStats = _cacheStats();
+      assert.equal(warmStats.files, 1);
+      assert.equal(warmStats.hits, 1);
+      assert.equal(warmStats.misses, 0);
+      // Correctness invariant: cached records must aggregate to exactly the
+      // same estimates a from-disk scan produces.
+      assert.deepEqual(warm, cold);
+    },
+  );
+});
+
+test("re-parses a rollout file after it is appended to", async () => {
+  const now = Math.floor(Date.now() / 1000) * 1000;
+  const recentTimestamp = new Date(now - DAY_MS).toISOString();
+  const laterTimestamp = new Date(now - DAY_MS / 2).toISOString();
+  await withSessionDir(
+    {
+      "rollout-grow.jsonl": [
+        tokenCountLine(recentTimestamp, { total: 1_600, last: 1_600 }),
+      ],
+    },
+    async (codexHome) => {
+      const env = { CODEX_HOME: codexHome };
+      const before = await estimateCodexSessionLogTokens(env, now);
+      assert.equal(before.totalTokens, 1_600);
+
+      await appendFile(
+        join(codexHome, "sessions", "2026", "07", "rollout-grow.jsonl"),
+        `${tokenCountLine(laterTimestamp, { total: 2_000, last: 400 })}\n`,
+      );
+      const after = await estimateCodexSessionLogTokens(env, now);
+      const stats = _cacheStats();
+      assert.equal(stats.misses, 1);
+      assert.equal(stats.hits, 0);
+      assert.equal(after.totalTokens, 2_000);
+    },
+  );
+});
+
+test("evicts cache entries for files that leave the mtime window", async () => {
+  const now = Math.floor(Date.now() / 1000) * 1000;
+  const recentTimestamp = new Date(now - DAY_MS).toISOString();
+  await withSessionDir(
+    {
+      "rollout-fresh.jsonl": [
+        tokenCountLine(recentTimestamp, { total: 500, last: 500 }),
+      ],
+      "rollout-age-out.jsonl": [
+        tokenCountLine(recentTimestamp, { total: 300, last: 300 }),
+      ],
+    },
+    async (codexHome) => {
+      const env = { CODEX_HOME: codexHome };
+      const before = await estimateCodexSessionLogTokens(env, now);
+      assert.equal(before.totalTokens, 800);
+      assert.equal(_cacheStats().files, 2);
+
+      const staleSeconds = (now - 8 * DAY_MS) / 1000;
+      await utimes(
+        join(codexHome, "sessions", "2026", "07", "rollout-age-out.jsonl"),
+        staleSeconds,
+        staleSeconds,
+      );
+      const after = await estimateCodexSessionLogTokens(env, now);
+      const stats = _cacheStats();
+      assert.equal(stats.files, 1);
+      assert.equal(stats.hits, 1);
+      assert.equal(stats.misses, 0);
+      assert.equal(after.totalTokens, 500);
+    },
+  );
+});
+
+test("skips oversized lines and marks the estimate approximate", async () => {
+  const now = Math.floor(Date.now() / 1000) * 1000;
+  const recentTimestamp = new Date(now - DAY_MS).toISOString();
+  await withSessionDir(
+    {
+      "rollout-oversized.jsonl": [
+        tokenCountLine(recentTimestamp, { total: 700, last: 700 }),
+        "x".repeat(4 * 1024 * 1024 + 16),
+      ],
+    },
+    async (codexHome) => {
+      const env = { CODEX_HOME: codexHome };
+      const estimates = await estimateCodexSessionLogTokenEstimates(env, now);
+      const weekly = estimates.find(
+        (estimate) => estimate.periodId === "weekly_cycle",
+      );
+      assert.equal(weekly.totalTokens, 700);
+      assert.equal(weekly.estimated, true);
+      assert.match(weekly.assumption, /4MB/);
+      assert.match(weekly.assumption, /approximate/);
+
+      // The skipped-line count is cached with the file, so a warm scan must
+      // still report the estimate as approximate.
+      const warm = await estimateCodexSessionLogTokenEstimates(env, now);
+      assert.equal(_cacheStats().hits, 1);
+      assert.deepEqual(warm, estimates);
+    },
   );
 });
 
