@@ -2,6 +2,7 @@ import { desc, gte } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { remoteUsageHistory } from "../../../db/schema";
 import { isViewerAuthorized } from "../../../lib/remote-auth";
+import type { HistoryPoint } from "../../../lib/usage-types";
 
 const HISTORY_LIMIT = 20_000;
 // Raw rows arrive roughly every 5 minutes per provider/window; this bound
@@ -10,19 +11,12 @@ const RAW_FETCH_LIMIT = 150_000;
 const RAW_WINDOW_MS = 48 * 3_600_000;
 const HOUR_MS = 3_600_000;
 
-type HistoryRow = {
-  providerId: string;
-  windowId: string;
-  usedPercent: number | null;
-  capturedAt: string;
-};
-
 // Long windows would starve weekly reset estimation under a flat row limit:
 // keep the newest 48 hours raw and aggregate anything older into hourly
 // buckets (average usedPercent per provider/window/hour).
-function downsample(chronological: HistoryRow[]): HistoryRow[] {
+function downsample(chronological: HistoryPoint[]): HistoryPoint[] {
   const rawCutoffMs = Date.now() - RAW_WINDOW_MS;
-  const recent: HistoryRow[] = [];
+  const recent: HistoryPoint[] = [];
   const buckets = new Map<
     string,
     {

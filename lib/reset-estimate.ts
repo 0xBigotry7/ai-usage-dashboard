@@ -1,15 +1,10 @@
-export type ResetHistoryPoint = {
-  providerId: string;
-  windowId: string;
-  usedPercent: number | null;
-  capturedAt: string;
-};
+import type { HistoryPoint } from "./usage-types";
 
 type EstimateResetInput = {
   providerId: string;
   windowId: string;
   durationSeconds: number;
-  history: ResetHistoryPoint[];
+  history: HistoryPoint[];
   now?: number;
 };
 
