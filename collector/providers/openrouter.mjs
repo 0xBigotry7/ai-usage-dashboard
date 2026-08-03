@@ -12,7 +12,7 @@ const OPENROUTER = {
   name: "OpenRouter",
   shortName: "OR",
   accent: "#d5bcff",
-  authMessage: "OpenRouter API Key 不可用，请检查 OPENROUTER_API_KEY。",
+  authMessage: "OpenRouter API key is not usable. Check OPENROUTER_API_KEY.",
 };
 
 const DEFAULT_USAGE_URL = "https://openrouter.ai/api/v1/key";
@@ -65,9 +65,9 @@ export function normalizeOpenRouterUsage(
     monthly: 2_592_000,
   };
   const labelByReset = {
-    daily: "今日",
-    weekly: "本周",
-    monthly: "本月",
+    daily: "Daily",
+    weekly: "Weekly",
+    monthly: "Monthly",
   };
   const idByReset = {
     daily: "daily",
@@ -105,12 +105,12 @@ export function normalizeOpenRouterUsage(
     ],
     balance:
       remaining !== null
-        ? { label: "Key 剩余额度", value: remaining, unit: "USD" }
+        ? { label: "Key credit remaining", value: remaining, unit: "USD" }
         : null,
     message:
       limit === null
-        ? "当前 Key 没有设置消费上限；仍显示平台返回的实际消费。"
-        : "按当前 API Key 的消费上限与重置周期显示。",
+        ? "This key has no spending limit; showing actual spend reported by the platform."
+        : "Shown against this API key's spending limit and reset cycle.",
     tokenUsage: null,
     tokenEstimates: [],
   };
@@ -120,12 +120,12 @@ export async function collectOpenRouterUsage(env = process.env) {
   const updatedAt = new Date().toISOString();
   const apiKey = env.OPENROUTER_API_KEY?.trim();
   if (!apiKey) {
-    const error = new Error("缺少 OPENROUTER_API_KEY");
+    const error = new Error("Missing OPENROUTER_API_KEY");
     error.status = 401;
     const result = providerError(
       OPENROUTER,
       error,
-      "等待 OpenRouter API Key",
+      "Waiting for OpenRouter API Key",
       updatedAt,
     );
     result.state = "needs_configuration";

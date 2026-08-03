@@ -20,7 +20,7 @@ async function timedFetch(url, options) {
 }
 
 function safeOrigin(value) {
-  if (!value) throw new Error("未配置 USAGE_HUB_CLOUD_URL");
+  if (!value) throw new Error("USAGE_HUB_CLOUD_URL is not configured");
   const url = new URL(value);
   if (
     url.protocol !== "https:" ||
@@ -28,21 +28,25 @@ function safeOrigin(value) {
     url.password ||
     url.pathname !== "/"
   ) {
-    throw new Error("远端快照地址必须是无凭证的 HTTPS 根地址");
+    throw new Error(
+      "Remote snapshot URL must be a credential-free HTTPS origin",
+    );
   }
   return url.origin;
 }
 
 async function login(origin, viewCodePath) {
   const code = (await readFile(viewCodePath, "utf8")).trim();
-  if (!code) throw new Error("本机缺少用量面板查看码");
+  if (!code) throw new Error("No dashboard view code found on this machine");
   const response = await timedFetch(`${origin}/api/session`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ code }),
   });
   if (!response.ok) {
-    throw new Error(`云端查看码验证返回 HTTP ${response.status}`);
+    throw new Error(
+      `Cloud view-code verification returned HTTP ${response.status}`,
+    );
   }
   // getSetCookie keeps multiple Set-Cookie headers separate; the joined
   // "set-cookie" string cannot be split safely (cookie attributes contain
@@ -55,7 +59,7 @@ async function login(origin, viewCodePath) {
     setCookies.find((value) => value?.trim()) ??
     response.headers.get("set-cookie");
   const cookie = setCookie?.split(";", 1)[0]?.trim();
-  if (!cookie) throw new Error("云端没有返回查看会话");
+  if (!cookie) throw new Error("Cloud did not return a viewer session");
   sessionCookie = cookie;
 }
 
@@ -72,7 +76,7 @@ async function fetchSnapshot(origin, viewCodePath) {
     });
   }
   if (!response.ok) {
-    throw new Error(`云端快照返回 HTTP ${response.status}`);
+    throw new Error(`Cloud snapshot returned HTTP ${response.status}`);
   }
   return response.json();
 }
@@ -86,7 +90,7 @@ function cloneRemoteProvider(provider) {
     accent: provider.accent || "#7bf1a8",
     state: provider.state,
     plan: provider.plan ?? null,
-    source: `${provider.source || provider.name || provider.id} · 脱敏快照`,
+    source: `${provider.source || provider.name || provider.id} · sanitized snapshot`,
     sourceKind: "remote_snapshot",
     updatedAt: provider.updatedAt,
     windows: Array.isArray(provider.windows) ? provider.windows : [],
@@ -128,13 +132,15 @@ export async function collectRemoteSnapshotProviders(
     return providers;
   } catch (error) {
     if (lastProviders.length === 0) {
-      console.warn(`无法读取远端脱敏快照：${error?.message || "未知错误"}`);
+      console.warn(
+        `Cannot read remote sanitized snapshot: ${error?.message || "unknown error"}`,
+      );
       return [];
     }
     return lastProviders.map((provider) => ({
       ...provider,
-      source: `${provider.source} · 上次成功数据`,
-      message: `远端快照暂时不可用；显示上次成功数据。${
+      source: `${provider.source} · last good data`,
+      message: `Remote snapshot temporarily unavailable; showing last good data.${
         error?.message ? ` ${error.message}` : ""
       }`,
     }));

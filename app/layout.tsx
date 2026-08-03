@@ -6,10 +6,11 @@ export const metadata: Metadata = {
     default: "AI Usage Dashboard",
     template: "%s · AI Usage Dashboard",
   },
-  description: "可扩展的 AI 配额与 Token 用量 Dashboard。",
+  description: "An extensible AI quota and token usage dashboard.",
   openGraph: {
     title: "AI Usage Dashboard",
-    description: "本地优先的多平台 AI 配额、Token 与余额仪表盘。",
+    description:
+      "A local-first dashboard for AI quotas, tokens, and balances across providers.",
     type: "website",
     images: [
       {
@@ -23,7 +24,8 @@ export const metadata: Metadata = {
   twitter: {
     card: "summary_large_image",
     title: "AI Usage Dashboard",
-    description: "本地优先的多平台 AI 配额、Token 与余额仪表盘。",
+    description:
+      "A local-first dashboard for AI quotas, tokens, and balances across providers.",
     images: ["/og.png"],
   },
 };
@@ -40,7 +42,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="zh-CN">
+    <html lang="en">
       <body>{children}</body>
     </html>
   );

@@ -18,7 +18,8 @@ const KIMI = {
   name: "Kimi Code",
   shortName: "KM",
   accent: "#b7c8ff",
-  authMessage: "Kimi Code 凭证不可用，请配置长期 KIMI_CODE_API_KEY。",
+  authMessage:
+    "Kimi Code credential is unavailable. Configure a long-lived KIMI_CODE_API_KEY.",
 };
 
 const DEFAULT_BASE_URL = "https://api.kimi.com";
@@ -78,7 +79,7 @@ export function normalizeKimiUsage(
     windows.push(
       normalizeDetail(payload.usage, {
         id: "weekly",
-        label: "本周",
+        label: "Weekly",
         durationSeconds: 604_800,
       }),
     );
@@ -111,7 +112,7 @@ export function normalizeKimiUsage(
     balance: null,
     message:
       sourceKind === "cli_session"
-        ? "当前使用 Kimi CLI 的短期登录态；配置长期 API Key 后会自动切换。"
+        ? "Using the Kimi CLI's short-lived session; switches automatically once a long-lived API key is configured."
         : null,
   };
 }
@@ -150,13 +151,18 @@ export async function collectKimiUsage(env = process.env) {
   const apiKey = env.KIMI_CODE_API_KEY?.trim();
   const cliToken = apiKey ? null : await readCliCredential(env);
   const token = apiKey || cliToken;
-  const source = apiKey ? "Kimi Code API Key" : "Kimi CLI 临时登录";
+  const source = apiKey ? "Kimi Code API Key" : "Kimi CLI temporary session";
   const sourceKind = apiKey ? "api_key" : "cli_session";
 
   if (!token) {
-    const error = new Error("缺少长期 Kimi Code API Key");
+    const error = new Error("Missing long-lived Kimi Code API key");
     error.status = 401;
-    const result = providerError(KIMI, error, "等待 Kimi Code API Key", updatedAt);
+    const result = providerError(
+      KIMI,
+      error,
+      "Waiting for Kimi Code API Key",
+      updatedAt,
+    );
     result.state = "needs_configuration";
     result.tokenUsage = null;
     return result;
@@ -166,7 +172,7 @@ export async function collectKimiUsage(env = process.env) {
     const rawBase = env.KIMI_CODE_BASE_URL || DEFAULT_BASE_URL;
     const base = new URL(rawBase);
     if (base.protocol !== "https:" || base.username || base.password) {
-      throw new Error("KIMI_CODE_BASE_URL 必须是安全的 HTTPS 地址");
+      throw new Error("KIMI_CODE_BASE_URL must be a secure HTTPS URL");
     }
     const basePath = base.pathname.replace(/\/+$/, "");
     const normalizedBase = base.href.replace(/\/+$/, "");
@@ -193,7 +199,7 @@ export async function collectKimiUsage(env = process.env) {
     });
     const quotaEstimate = estimateWeeklyQuotaTokens(provider.windows, {
       id: "kimi-code-subscription",
-      label: "Kimi Code 综合订阅",
+      label: "Kimi Code subscription (combined)",
       capacityTokens: env.USAGE_HUB_KIMI_WEEKLY_TOKEN_CAPACITY,
     });
     provider.tokenUsage = quotaEstimate;

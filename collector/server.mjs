@@ -55,7 +55,7 @@ async function loadPrivateEnvironment() {
     }
   } catch (error) {
     if (error?.code !== "ENOENT") {
-      console.warn(`无法读取私密配置：${error.message}`);
+      console.warn(`Cannot read private env file: ${error.message}`);
     }
   }
 }
@@ -111,7 +111,7 @@ async function pushRemoteSnapshot(snapshot) {
   if (!url || !token) return;
   const endpoint = new URL(url);
   if (endpoint.protocol !== "https:") {
-    throw new Error("远端同步地址必须使用 HTTPS");
+    throw new Error("Cloud sync URL must use HTTPS");
   }
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 15_000);
@@ -127,7 +127,7 @@ async function pushRemoteSnapshot(snapshot) {
       signal: controller.signal,
     });
     if (!response.ok) {
-      throw new Error(`远端同步返回 HTTP ${response.status}`);
+      throw new Error(`Cloud sync returned HTTP ${response.status}`);
     }
   } finally {
     clearTimeout(timer);
@@ -158,7 +158,9 @@ async function refresh({ forceLocal = false } = {}) {
     try {
       history.save(providers, generatedAt);
     } catch (error) {
-      console.warn(`历史数据写入失败：${error?.message || "未知错误"}`);
+      console.warn(
+        `Failed to write history: ${error?.message || "unknown error"}`,
+      );
     }
     latest = {
       generatedAt: generatedAt.toISOString(),
@@ -175,7 +177,7 @@ async function refresh({ forceLocal = false } = {}) {
     try {
       await pushRemoteSnapshot(latest);
     } catch (error) {
-      console.warn(`远端同步失败：${error?.message || "未知错误"}`);
+      console.warn(`Cloud sync failed: ${error?.message || "unknown error"}`);
     }
     return latest;
   })().finally(() => {
@@ -244,7 +246,9 @@ const server = createServer(async (request, response) => {
     if (request.method === "GET" && url.pathname === "/api/usage") {
       if (!latest.generatedAt) {
         void refresh().catch((error) => {
-          console.warn(`首次刷新失败：${error?.message || "未知错误"}`);
+          console.warn(
+            `Initial refresh failed: ${error?.message || "unknown error"}`,
+          );
         });
       }
       sendJson(response, 200, latest, origin);
@@ -289,13 +293,15 @@ server.listen(PORT, HOST, () => {
 });
 void refresh().catch((error) => {
   console.warn(
-    `首次刷新失败，将在下个周期重试：${error?.message || "未知错误"}`,
+    `Initial refresh failed; retrying next cycle: ${error?.message || "unknown error"}`,
   );
 });
 
 const interval = setInterval(() => {
   void refresh().catch((error) => {
-    console.warn(`周期刷新失败：${error?.message || "未知错误"}`);
+    console.warn(
+      `Periodic refresh failed: ${error?.message || "unknown error"}`,
+    );
   });
 }, POLL_INTERVAL_MS);
 interval.unref();

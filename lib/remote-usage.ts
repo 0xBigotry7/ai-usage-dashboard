@@ -153,7 +153,7 @@ function sanitizeTokenUsage(value: unknown) {
       models,
       assumption:
         boundedString(input.assumption, 240) ||
-        "按周配额百分比乘以订阅容量估算。",
+        "Estimated as weekly quota percentage × subscription capacity.",
     };
   }
   if (basis === "api_usage") {
@@ -176,7 +176,7 @@ function sanitizeTokenUsage(value: unknown) {
       models,
       assumption:
         boundedString(input.assumption, 240) ||
-        "来自平台官方 Usage API 的模型用量。",
+        "Per-model usage from the provider's official usage API.",
     };
   }
   return {
@@ -199,7 +199,7 @@ function sanitizeTokenUsage(value: unknown) {
     models,
     assumption:
       boundedString(input.assumption, 240) ||
-      "按本机会话日志中的 token_count 增量估算。",
+      "Estimated from token_count deltas in local session logs.",
   };
 }
 
@@ -248,7 +248,7 @@ function sanitizeProvider(value: unknown) {
   const balance =
     balanceInput && balanceValue !== null
       ? {
-          label: boundedString(balanceInput.label, 40) || "余额",
+          label: boundedString(balanceInput.label, 40) || "Balance",
           value: balanceValue,
           unit: boundedString(balanceInput.unit, 20) || "",
         }
@@ -265,7 +265,7 @@ function sanitizeProvider(value: unknown) {
         : "#7bf1a8",
     state,
     plan: boundedString(input.plan, 80),
-    source: boundedString(input.source, 80) || "远端采集器",
+    source: boundedString(input.source, 80) || "Remote collector",
     sourceKind: boundedString(input.sourceKind, 40),
     updatedAt: safeIso(input.updatedAt) || new Date().toISOString(),
     windows,

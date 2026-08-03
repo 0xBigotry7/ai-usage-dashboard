@@ -67,7 +67,7 @@ export function estimateWeeklyQuotaTokens(
     windowId: primary.windowId,
     models,
     assumption:
-      "按周配额已用百分比乘以用户校准的订阅容量估算；该容量是用户校准值，不是平台官方 token 上限；独立模型额度不重复计入总量。",
+      "Estimated as weekly quota used-percent × the user-calibrated subscription capacity; that capacity is a user calibration, not an official provider token limit; separate model quotas are not double-counted in the total.",
   };
 }
 

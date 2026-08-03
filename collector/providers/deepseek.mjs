@@ -11,7 +11,7 @@ const DEEPSEEK = {
   name: "DeepSeek API",
   shortName: "DS",
   accent: "#78b7ff",
-  authMessage: "DeepSeek API Key 不可用，请检查 DEEPSEEK_API_KEY。",
+  authMessage: "DeepSeek API key is not usable. Check DEEPSEEK_API_KEY.",
 };
 
 const DEFAULT_BALANCE_URL = "https://api.deepseek.com/user/balance";
@@ -43,17 +43,17 @@ export function normalizeDeepSeekBalance(
     windows: [],
     balance: primary
       ? {
-          label: `${primary.currency} 可用余额`,
+          label: `Available balance (${primary.currency})`,
           value: primary.total,
           unit: primary.currency,
         }
       : null,
     message:
       payload?.is_available === false
-        ? "账户余额当前不可用于 API 调用。"
+        ? "Account balance is currently not usable for API calls."
         : balances.length > 1
-          ? `账户返回 ${balances.map((item) => item.currency).join(" / ")} 多币种余额。`
-          : "来自 DeepSeek 官方余额接口。",
+          ? `Account returned balances in multiple currencies: ${balances.map((item) => item.currency).join(" / ")}.`
+          : "From DeepSeek's official balance API.",
     tokenUsage: null,
     tokenEstimates: [],
   };
@@ -63,12 +63,12 @@ export async function collectDeepSeekBalance(env = process.env) {
   const updatedAt = new Date().toISOString();
   const apiKey = env.DEEPSEEK_API_KEY?.trim();
   if (!apiKey) {
-    const error = new Error("缺少 DEEPSEEK_API_KEY");
+    const error = new Error("Missing DEEPSEEK_API_KEY");
     error.status = 401;
     const result = providerError(
       DEEPSEEK,
       error,
-      "等待 DeepSeek API Key",
+      "Waiting for DeepSeek API Key",
       updatedAt,
     );
     result.state = "needs_configuration";

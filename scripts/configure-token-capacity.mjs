@@ -21,7 +21,7 @@ const capacityKey = capacityKeys[provider];
 
 if (!capacityKey || !rawCapacity) {
   console.error(
-    "用法：npm run configure:capacity -- <codex|kimi> <每周 token 容量|clear>",
+    "Usage: npm run configure:capacity -- <codex|kimi> <weekly token capacity|clear>",
   );
   process.exit(1);
 }
@@ -29,7 +29,9 @@ if (!capacityKey || !rawCapacity) {
 const shouldClear = rawCapacity.toLowerCase() === "clear";
 const capacity = Number(rawCapacity);
 if (!shouldClear && (!Number.isSafeInteger(capacity) || capacity <= 0)) {
-  console.error("每周 token 容量必须是正整数，或使用 clear 取消校准。");
+  console.error(
+    "Weekly token capacity must be a positive integer, or use clear to remove the calibration.",
+  );
   process.exit(1);
 }
 
@@ -89,10 +91,12 @@ try {
 }
 
 if (shouldClear) {
-  console.log(`${provider} 的周 token 容量校准已取消。`);
+  console.log(`Weekly token capacity calibration cleared for ${provider}.`);
 } else {
   console.log(
-    `${provider} 的周 token 容量校准已设为 ${capacity.toLocaleString("en-US")}。`,
+    `Weekly token capacity calibration for ${provider} set to ${capacity.toLocaleString("en-US")}.`,
   );
 }
-console.log("重启本地采集器后生效。该数值是显示校准，不是官方订阅限额。");
+console.log(
+  "Takes effect after the local collector restarts. This value is a display calibration, not an official subscription limit.",
+);

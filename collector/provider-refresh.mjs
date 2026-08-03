@@ -25,14 +25,14 @@ function unexpectedProviderError(adapter, error, updatedAt) {
     updatedAt,
     windows: [],
     balance: null,
-    message: error?.message || "适配器暂时不可用",
+    message: error?.message || "Provider adapter temporarily unavailable",
     retryable: !authError && (!status || status === 408 || status === 429 || status >= 500),
   };
 }
 
 function staleResult(lastReady, failedResult, failureCount, failureThreshold) {
-  const retryMessage = `旧数据 · 重试中（${failureCount}/${failureThreshold}）：${
-    failedResult.message || "暂时无法取得配额数据"
+  const retryMessage = `Stale data · retrying (${failureCount}/${failureThreshold}): ${
+    failedResult.message || "Temporarily unable to fetch quota data"
   }`;
   return {
     ...lastReady,
@@ -60,7 +60,7 @@ export function createProviderRefreshCoordinator({
       return await adapter.collect(env);
     } catch (error) {
       console.warn(
-        `适配器 ${adapter.id} 意外抛出：${error?.message || "未知错误"}`,
+        `Adapter ${adapter.id} threw unexpectedly: ${error?.message || "unknown error"}`,
       );
       return unexpectedProviderError(
         adapter,

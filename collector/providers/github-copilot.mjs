@@ -13,7 +13,7 @@ const GITHUB_COPILOT = {
   shortName: "GH",
   accent: "#f0c96b",
   authMessage:
-    "GitHub Token 不可用；需要具有 Plan: read 权限的 Fine-grained Token。",
+    "GitHub token is not usable; a fine-grained token with Plan: read permission is required.",
 };
 
 function nextMonthUtc() {
@@ -40,7 +40,7 @@ export function normalizeGitHubCopilotUsage(
       numberOrNull(item?.grossQuantity) ??
       numberOrNull(item?.netQuantity) ??
       0;
-    const model = String(item?.model || "未归因模型").slice(0, 60);
+    const model = String(item?.model || "Unattributed model").slice(0, 60);
     used += quantity;
     byModel.set(model, (byModel.get(model) || 0) + quantity);
   }
@@ -66,7 +66,7 @@ export function normalizeGitHubCopilotUsage(
     windows: [
       {
         id: "monthly",
-        label: "本月",
+        label: "Monthly",
         durationSeconds: 2_592_000,
         usedPercent: usagePercent({ used, limit, remaining }),
         used,
@@ -76,15 +76,15 @@ export function normalizeGitHubCopilotUsage(
       },
     ],
     balance: {
-      label: "本月 AI Credits",
+      label: "AI credits this month",
       value: used,
       unit: "credits",
     },
     message: topModels.length
-      ? `模型 Credits：${topModels
+      ? `Credits by model: ${topModels
           .map(({ model, value }) => `${model} ${Math.round(value * 100) / 100}`)
           .join(" · ")}`
-      : "GitHub Billing API 当前没有返回本月 Copilot AI Credits。",
+      : "GitHub Billing API returned no Copilot AI credits for this month.",
     tokenUsage: null,
     tokenEstimates: [],
   };
@@ -96,13 +96,13 @@ export async function collectGitHubCopilotUsage(env = process.env) {
   const username = env.GITHUB_COPILOT_USERNAME?.trim();
   if (!token || !username) {
     const error = new Error(
-      "缺少 GITHUB_COPILOT_TOKEN 或 GITHUB_COPILOT_USERNAME",
+      "Missing GITHUB_COPILOT_TOKEN or GITHUB_COPILOT_USERNAME",
     );
     error.status = 401;
     const result = providerError(
       GITHUB_COPILOT,
       error,
-      "等待 GitHub Copilot Billing 配置",
+      "Waiting for GitHub Copilot Billing setup",
       updatedAt,
     );
     result.state = "needs_configuration";

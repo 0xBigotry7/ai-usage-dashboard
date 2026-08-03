@@ -7,7 +7,7 @@ const OPENAI_API = {
   shortName: "OA",
   accent: "#8fd8b4",
   authMessage:
-    "OpenAI Admin API Key 不可用；请检查本机 OPENAI_ADMIN_KEY 配置。",
+    "OpenAI Admin API key is not usable; check the local OPENAI_ADMIN_KEY setting.",
 };
 
 const DEFAULT_USAGE_URL =
@@ -62,7 +62,7 @@ export function normalizeOpenAIAdminUsage(
 
   const models = Array.from(byModel, ([id, usage]) => ({
     id,
-    label: id === "unattributed" ? "未归因模型" : id,
+    label: id === "unattributed" ? "Unattributed model" : id,
     estimatedTokens: usage.tokens,
     inputTokens: usage.inputTokens,
     outputTokens: usage.outputTokens,
@@ -84,7 +84,7 @@ export function normalizeOpenAIAdminUsage(
           requestCount,
           models,
           assumption:
-            "来自 OpenAI Organization Usage API 的过去 7 天模型用量。",
+            "Past-7-day per-model usage from the OpenAI Organization Usage API.",
         }
       : null;
 
@@ -103,8 +103,8 @@ export function normalizeOpenAIAdminUsage(
     balance: null,
     message:
       requestCount > 0
-        ? `官方 Usage API · 过去 7 天 ${requestCount.toLocaleString("en-US")} 次模型请求`
-        : "OpenAI Usage API 当前没有返回过去 7 天的模型请求。",
+        ? `Official usage API · ${requestCount.toLocaleString("en-US")} model requests in the past 7 days`
+        : "OpenAI Usage API returned no model requests for the past 7 days.",
     tokenUsage,
     tokenEstimates: tokenUsage ? [tokenUsage] : [],
   };
@@ -114,12 +114,12 @@ export async function collectOpenAIAdminUsage(env = process.env) {
   const updatedAt = new Date().toISOString();
   const adminKey = env.OPENAI_ADMIN_KEY?.trim();
   if (!adminKey) {
-    const error = new Error("缺少 OPENAI_ADMIN_KEY");
+    const error = new Error("Missing OPENAI_ADMIN_KEY");
     error.status = 401;
     const result = providerError(
       OPENAI_API,
       error,
-      "等待 OpenAI Admin API Key",
+      "Waiting for OpenAI Admin API Key",
       updatedAt,
     );
     result.state = "needs_configuration";

@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 if (!stdin.isTTY || typeof stdin.setRawMode !== "function") {
-  console.error("请在交互式终端中运行 npm run configure:kimi。");
+  console.error("Run npm run configure:kimi in an interactive terminal.");
   process.exit(1);
 }
 
@@ -45,10 +45,10 @@ function readSecret(prompt) {
   });
 }
 
-const key = await readSecret("粘贴 Kimi Code API Key（输入内容隐藏）：");
+const key = await readSecret("Paste your Kimi Code API key (input hidden): ");
 
 if (!key) {
-  console.error("没有收到 API Key，未修改配置。");
+  console.error("No API key received; configuration unchanged.");
   process.exit(1);
 }
 
@@ -79,4 +79,6 @@ await writeFile(path, serialized, {
   mode: 0o600,
 });
 await chmod(path, 0o600);
-console.log("Kimi Code API Key 已保存。等待下一次自动刷新，或在 Dashboard 点击刷新。");
+console.log(
+  "Kimi Code API key saved. Wait for the next automatic refresh, or click Refresh on the dashboard.",
+);

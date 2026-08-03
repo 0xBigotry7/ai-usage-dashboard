@@ -35,7 +35,7 @@ function stop(exitCode = 0) {
 for (const child of children) {
   child.on("exit", (code, signal) => {
     if (!stopping && code !== 0) {
-      console.error(`本地服务意外退出：${signal || code}`);
+      console.error(`Local service exited unexpectedly: ${signal || code}`);
       stop(code || 1);
     }
   });
