@@ -122,12 +122,15 @@ export async function collectOpenRouterUsage(env = process.env) {
   if (!apiKey) {
     const error = new Error("缺少 OPENROUTER_API_KEY");
     error.status = 401;
-    return providerError(
+    const result = providerError(
       OPENROUTER,
       error,
       "等待 OpenRouter API Key",
       updatedAt,
     );
+    result.state = "needs_configuration";
+    result.tokenUsage = null;
+    return result;
   }
 
   try {

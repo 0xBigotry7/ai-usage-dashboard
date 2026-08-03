@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -18,8 +18,12 @@ import {
 } from "../lib/remote-usage.ts";
 import { estimateNextResetAt } from "../lib/reset-estimate.ts";
 import { summarizeTokenCountRecords } from "../collector/session-log-estimate.mjs";
-import { fetchJson } from "../collector/shared.mjs";
-import { HistoryStore } from "../collector/history.mjs";
+import {
+  fetchJson,
+  parseEnvAssignment,
+  resolvePollIntervalMs,
+} from "../collector/shared.mjs";
+import { createHistoryStore, HistoryStore } from "../collector/history.mjs";
 
 test("estimates a missing reset from the latest observed quota drop", () => {
   const resetsAt = estimateNextResetAt({
@@ -603,6 +607,73 @@ test("history records cached last-good data at its original observation time", (
     assert.equal(rows[1].capturedAt, capturedAt.toISOString());
   } finally {
     history.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("resolves the poll interval with a fallback for unparseable values", () => {
+  assert.equal(resolvePollIntervalMs("120000"), 120_000);
+  // "5m" is not a number; it must fall back instead of poisoning
+  // setInterval with NaN (which Node treats as a 1ms hot loop).
+  assert.equal(resolvePollIntervalMs("5m"), 60_000);
+  assert.equal(resolvePollIntervalMs(undefined), 60_000);
+  assert.equal(resolvePollIntervalMs(""), 60_000);
+  assert.equal(resolvePollIntervalMs("1000"), 30_000);
+  assert.equal(resolvePollIntervalMs("30000"), 30_000);
+});
+
+test("parses private env lines including export-prefixed assignments", () => {
+  assert.deepEqual(parseEnvAssignment("KIMI_CODE_API_KEY=abc"), {
+    key: "KIMI_CODE_API_KEY",
+    value: "abc",
+  });
+  assert.deepEqual(parseEnvAssignment("export KIMI_CODE_API_KEY=abc"), {
+    key: "KIMI_CODE_API_KEY",
+    value: "abc",
+  });
+  assert.deepEqual(
+    parseEnvAssignment('  export OPENROUTER_API_KEY="quoted value"  '),
+    { key: "OPENROUTER_API_KEY", value: "quoted value" },
+  );
+  assert.deepEqual(parseEnvAssignment("DEEPSEEK_API_KEY='single'"), {
+    key: "DEEPSEEK_API_KEY",
+    value: "single",
+  });
+  assert.equal(parseEnvAssignment("# a comment"), null);
+  assert.equal(parseEnvAssignment(""), null);
+  assert.equal(parseEnvAssignment("=missing-key"), null);
+  assert.equal(parseEnvAssignment("no assignment here"), null);
+});
+
+test("createHistoryStore returns a working store for a healthy database path", () => {
+  const directory = mkdtempSync(join(tmpdir(), "usage-history-safe-test-"));
+  const store = createHistoryStore(join(directory, "history.db"));
+  try {
+    assert.ok(store instanceof HistoryStore);
+    store.save(
+      [syntheticProvider({ updatedAt: new Date().toISOString() })],
+      new Date(),
+    );
+    assert.equal(store.recent(24).length, 1);
+  } finally {
+    store.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("createHistoryStore falls back to a no-op store on a corrupt database", () => {
+  const directory = mkdtempSync(join(tmpdir(), "usage-history-corrupt-test-"));
+  const corruptPath = join(directory, "corrupt.db");
+  writeFileSync(corruptPath, "this is definitely not a sqlite database");
+  try {
+    const store = createHistoryStore(corruptPath);
+    assert.equal(store instanceof HistoryStore, false);
+    // The stub must keep the collector alive: writes are dropped and
+    // reads come back empty instead of throwing.
+    store.save([syntheticProvider()], new Date());
+    assert.deepEqual(store.recent(24), []);
+    store.close();
+  } finally {
     rmSync(directory, { recursive: true, force: true });
   }
 });

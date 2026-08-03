@@ -23,17 +23,36 @@ const KIMI = {
 
 const DEFAULT_BASE_URL = "https://api.kimi.com";
 
+const SECONDS_BY_TIME_UNIT = new Map([
+  ["SECOND", 1],
+  ["MINUTE", 60],
+  ["HOUR", 3600],
+  ["DAY", 86_400],
+  ["WEEK", 604_800],
+  ["MONTH", 2_592_000],
+]);
+const warnedUnknownTimeUnits = new Set();
+
 function durationInSeconds(window) {
   const duration = Number(window?.duration);
   if (!Number.isFinite(duration) || duration <= 0) return null;
   const unit = String(window?.timeUnit || "").toUpperCase();
-  if (unit.includes("MINUTE")) return duration * 60;
-  if (unit.includes("HOUR")) return duration * 3600;
-  if (unit.includes("DAY")) return duration * 86_400;
-  if (unit.includes("SECOND")) return duration;
-  throw new Error(
-    `Kimi 用量接口返回了未识别的时间单位 "${window?.timeUnit}"。`,
-  );
+  const normalized = unit.startsWith("TIME_UNIT_")
+    ? unit.slice("TIME_UNIT_".length)
+    : unit;
+  // Exact matching only: substring checks would misread e.g.
+  // TIME_UNIT_MILLISECOND as seconds (a 1000x error).
+  const secondsPerUnit = SECONDS_BY_TIME_UNIT.get(normalized);
+  if (!secondsPerUnit) {
+    if (!warnedUnknownTimeUnits.has(unit)) {
+      warnedUnknownTimeUnits.add(unit);
+      console.warn(
+        `Kimi usage API returned unrecognized time unit "${window?.timeUnit}"; skipping that quota window.`,
+      );
+    }
+    return null;
+  }
+  return duration * secondsPerUnit;
 }
 
 function normalizeDetail(detail, descriptor) {

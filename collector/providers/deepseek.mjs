@@ -65,12 +65,15 @@ export async function collectDeepSeekBalance(env = process.env) {
   if (!apiKey) {
     const error = new Error("缺少 DEEPSEEK_API_KEY");
     error.status = 401;
-    return providerError(
+    const result = providerError(
       DEEPSEEK,
       error,
       "等待 DeepSeek API Key",
       updatedAt,
     );
+    result.state = "needs_configuration";
+    result.tokenUsage = null;
+    return result;
   }
 
   try {

@@ -4,14 +4,17 @@ import { join } from "node:path";
 import { readFile } from "node:fs/promises";
 import { collectLocalProviders } from "./providers/index.mjs";
 import { collectRemoteSnapshotProviders } from "./providers/remote-snapshot.mjs";
-import { HistoryStore } from "./history.mjs";
-import { HUB_VERSION } from "./shared.mjs";
+import { createHistoryStore } from "./history.mjs";
+import {
+  HUB_VERSION,
+  parseEnvAssignment,
+  resolvePollIntervalMs,
+} from "./shared.mjs";
 
 const HOST = process.env.USAGE_HUB_HOST || "127.0.0.1";
 const PORT = Number(process.env.USAGE_HUB_PORT || 4317);
-const POLL_INTERVAL_MS = Math.max(
-  30_000,
-  Number(process.env.USAGE_HUB_POLL_INTERVAL_MS || 60_000),
+const POLL_INTERVAL_MS = resolvePollIntervalMs(
+  process.env.USAGE_HUB_POLL_INTERVAL_MS,
 );
 const STARTED_AT = new Date().toISOString();
 const ALLOWED_BROWSER_ORIGINS = new Set([
@@ -43,19 +46,11 @@ async function loadPrivateEnvironment() {
   try {
     const contents = await readFile(path, "utf8");
     for (const rawLine of contents.split(/\r?\n/)) {
-      const line = rawLine.trim();
-      if (!line || line.startsWith("#")) continue;
-      const separator = line.indexOf("=");
-      if (separator <= 0) continue;
-      const key = line.slice(0, separator).trim();
-      let value = line.slice(separator + 1).trim();
-      if (
-        (value.startsWith('"') && value.endsWith('"')) ||
-        (value.startsWith("'") && value.endsWith("'"))
-      ) {
-        value = value.slice(1, -1);
+      const assignment = parseEnvAssignment(rawLine);
+      if (!assignment) continue;
+      if (PRIVATE_ENV_KEYS.has(assignment.key)) {
+        process.env[assignment.key] = assignment.value;
       }
-      if (PRIVATE_ENV_KEYS.has(key)) process.env[key] = value;
     }
   } catch (error) {
     if (error?.code !== "ENOENT") {
@@ -66,7 +61,7 @@ async function loadPrivateEnvironment() {
 
 await loadPrivateEnvironment();
 
-const history = new HistoryStore();
+const history = createHistoryStore();
 let latest = {
   generatedAt: null,
   collector: {
@@ -78,6 +73,7 @@ let latest = {
   providers: [],
 };
 let refreshPromise = null;
+let refreshIsForced = false;
 
 function outboundSnapshot(snapshot) {
   return {
@@ -138,7 +134,15 @@ async function pushRemoteSnapshot(snapshot) {
 }
 
 async function refresh({ forceLocal = false } = {}) {
-  if (refreshPromise) return refreshPromise;
+  if (refreshPromise) {
+    if (!forceLocal || refreshIsForced) return refreshPromise;
+    // Do not drop the force flag: run a forced refresh once the in-flight
+    // periodic refresh settles, and hand its result back to the caller.
+    return refreshPromise
+      .catch(() => {})
+      .then(() => refresh({ forceLocal: true }));
+  }
+  refreshIsForced = forceLocal;
   refreshPromise = (async () => {
     await loadPrivateEnvironment();
     const localProviders = await collectLocalProviders(process.env, {
@@ -269,6 +273,16 @@ const server = createServer(async (request, response) => {
   }
 });
 
+server.on("error", (error) => {
+  if (error?.code === "EADDRINUSE") {
+    console.error(
+      `Port ${PORT} is already in use. Another collector may be running; ` +
+        `stop it or set USAGE_HUB_PORT to a free port and retry.`,
+    );
+    process.exit(1);
+  }
+  throw error;
+});
 server.listen(PORT, HOST, () => {
   console.log(`AI Usage Dashboard collector: http://${HOST}:${PORT}`);
 });

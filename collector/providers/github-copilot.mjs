@@ -99,12 +99,15 @@ export async function collectGitHubCopilotUsage(env = process.env) {
       "缺少 GITHUB_COPILOT_TOKEN 或 GITHUB_COPILOT_USERNAME",
     );
     error.status = 401;
-    return providerError(
+    const result = providerError(
       GITHUB_COPILOT,
       error,
       "等待 GitHub Copilot Billing 配置",
       updatedAt,
     );
+    result.state = "needs_configuration";
+    result.tokenUsage = null;
+    return result;
   }
 
   try {
