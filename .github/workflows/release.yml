@@ -20,6 +20,9 @@ jobs:
         with:
           node-version: "22.13.0"
           cache: npm
+          # Writes an .npmrc that reads NODE_AUTH_TOKEN, used by the
+          # optional npm publish step below.
+          registry-url: "https://registry.npmjs.org"
 
       - run: npm ci
       - run: npm run check
@@ -58,3 +61,37 @@ jobs:
           files: |
             ${{ runner.temp }}/${{ steps.package.outputs.asset }}
             ${{ runner.temp }}/${{ steps.package.outputs.asset }}.sha256
+
+      # Publish the npm package (`npx ai-usage-dashboard`). The tarball ships
+      # the prebuilt web dashboard (dist/) plus the menu bar app zip built
+      # above (prebuilt/menubar.zip). macOS arm64 is the only prebuilt menu
+      # bar target; every other platform installs the same package and uses
+      # the web dashboard only. Skips gracefully when the NPM_TOKEN secret is
+      # absent so forks can keep tagging releases without npm credentials.
+      - name: Publish to npm (skips without NPM_TOKEN)
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ -z "${NODE_AUTH_TOKEN:-}" ]; then
+            echo "::notice::NPM_TOKEN secret is not configured; skipping npm publish."
+            exit 0
+          fi
+
+          name="$(node -p "require('./package.json').name")"
+          version="$(node -p "require('./package.json').version")"
+          if npm view "${name}@${version}" version >/dev/null 2>&1; then
+            echo "::notice::${name}@${version} already exists on npm; skipping publish."
+            exit 0
+          fi
+
+          # Bundle the release-validated menu bar zip packaged above, then
+          # rebuild the web dashboard so dist/ contains only the web output
+          # (the packaged .app must not ship twice).
+          mkdir -p prebuilt
+          cp "$RUNNER_TEMP/${{ steps.package.outputs.asset }}" prebuilt/menubar.zip
+          npm run build
+
+          npm publish --access public
