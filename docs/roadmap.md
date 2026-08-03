@@ -69,21 +69,16 @@ logos backed by fragile scraping is not a product goal.
 These are research directions, not commitments. Each candidate must pass the
 design rules below before it becomes built-in support:
 
-1. **Anthropic Claude Code** — local session logs under
-   `~/.claude/projects/**/*.jsonl` carry per-message usage blocks (input,
-   output, and cache tokens), which fits the existing session-log estimation
-   path without exporting message content. An OAuth quota endpoint may exist
-   but is undocumented; treat it as a research item, not an assumption.
-2. **ccusage JSON adapter** — reuse its provider-neutral CLI output instead of
+1. **ccusage JSON adapter** — reuse its provider-neutral CLI output instead of
    reimplementing log parsers for every supported coding agent.
-3. **Gemini CLI** — ingest model/session statistics exposed by its documented
+2. **Gemini CLI** — ingest model/session statistics exposed by its documented
    `/stats model` behavior or a stable local record.
-4. **GitHub organization AI Credits** — extend the existing personally billed
+3. **GitHub organization AI Credits** — extend the existing personally billed
    user adapter for organization-managed seats without broadening default
    token permissions.
-5. **Cursor** — prefer documented team/enterprise APIs over browser-cookie
+4. **Cursor** — prefer documented team/enterprise APIs over browser-cookie
    extraction.
-6. **OpenCode, Kilo, Qwen, MiniMax, and other coding agents** — add through
+5. **OpenCode, Kilo, Qwen, MiniMax, and other coding agents** — add through
    isolated adapters or the custom snapshot protocol.
 
 ## Design rules for expansion

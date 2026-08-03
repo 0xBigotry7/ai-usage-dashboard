@@ -37,7 +37,7 @@
     "configure:cloud": "node scripts/configure-cloud-sync.mjs",
     "generate:cloud-secrets": "node scripts/generate-cloud-secrets.mjs",
     "copy:view-code": "node scripts/copy-view-code.mjs",
-    "test": "node --experimental-strip-types --test tests/collector.test.mjs tests/session-log-estimate.test.mjs tests/provider-http.test.mjs tests/configure-token-capacity.test.mjs && npm run build && node --test tests/rendered-html.test.mjs",
+    "test": "node --experimental-strip-types --test tests/collector.test.mjs tests/session-log-estimate.test.mjs tests/claude-session-log.test.mjs tests/provider-http.test.mjs tests/configure-token-capacity.test.mjs && npm run build && node --test tests/rendered-html.test.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "typecheck": "tsc --noEmit",
     "check": "npm run lint && npm run typecheck && npm test"

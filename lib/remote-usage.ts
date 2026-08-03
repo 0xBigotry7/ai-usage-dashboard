@@ -2,6 +2,7 @@ import pkg from "../package.json" with { type: "json" };
 
 const PROVIDER_ORDER = [
   "codex",
+  "claude",
   "kimi",
   "openai-api",
   "openrouter",

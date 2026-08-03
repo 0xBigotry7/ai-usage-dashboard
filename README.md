@@ -52,6 +52,7 @@ together, and quota conversion is never presented as observed usage.
 | Adapter | Quota source | Token methods | Credential boundary |
 | --- | --- | --- | --- |
 | OpenAI Codex | Existing Codex CLI OAuth session | Optional quota conversion and local `token_count` events | Reads CLI-owned files; never writes credentials |
+| Claude Code | None; no documented quota endpoint | Observed today and trailing-7-day tokens from local per-message `usage` records | Reads CLI-owned session logs; never message content or credentials |
 | Kimi Code | API key or unexpired CLI session | Optional quota conversion | Optional key stored outside the repository with mode `0600` |
 | OpenAI API | Documented Organization Usage API | Exact seven-day model tokens and request counts | Admin key stays in the local collector |
 | OpenRouter | Documented current-key endpoint | Key spend, limit, and reset period | API key stays in the local collector |

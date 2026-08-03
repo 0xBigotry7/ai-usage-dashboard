@@ -1,3 +1,6 @@
+import { existsSync } from "node:fs";
+import { claudeProjectsDir } from "../claude-session-log.mjs";
+import { collectClaudeCodeUsage } from "./claude-code.mjs";
 import { collectCodexUsage } from "./codex.mjs";
 import { collectDeepSeekBalance } from "./deepseek.mjs";
 import { collectGitHubCopilotUsage } from "./github-copilot.mjs";
@@ -14,6 +17,15 @@ export const providerAdapters = [
     name: "OpenAI Codex",
     defaultEnabled: true,
     collect: collectCodexUsage,
+  },
+  {
+    id: "claude",
+    name: "Claude Code",
+    defaultEnabled: false,
+    // Auto-enables once local Claude Code session logs exist; no credential
+    // is required, so log presence is the configuration signal.
+    configured: (env) => existsSync(claudeProjectsDir(env)),
+    collect: collectClaudeCodeUsage,
   },
   {
     id: "kimi",
