@@ -16,7 +16,12 @@ test("build contains the dashboard, dedicated display, brands, and protected rou
       readFile(new URL("../app/api/ingest/route.ts", import.meta.url), "utf8"),
       readFile(new URL("../app/api/session/route.ts", import.meta.url), "utf8"),
     ]),
-    readdir(new URL("../dist/client/assets/", import.meta.url)),
+    // vinext moved client build output from assets/ to _next/ — accept either.
+    readdir(new URL("../dist/client/assets/", import.meta.url)).catch(() =>
+      readdir(new URL("../dist/client/_next/", import.meta.url), {
+        recursive: true,
+      }),
+    ),
     readdir(new URL("../public/brands/", import.meta.url)),
     readdir(new URL("../public/", import.meta.url)),
   ]);
@@ -65,6 +70,10 @@ test("build contains the dashboard, dedicated display, brands, and protected rou
       .every((file) => brandAssets.includes(file)),
   );
   assert.ok(routes.every((route) => /is(Viewer|Ingest)Authorized/.test(route)));
-  assert.ok(clientAssets.some((file) => file.startsWith("usage-dashboard-")));
+  assert.ok(
+    clientAssets.some((file) =>
+      String(file).split("/").pop().startsWith("usage-dashboard-"),
+    ),
+  );
   assert.doesNotMatch(dashboard, /codex-preview|react-loading-skeleton/);
 });
