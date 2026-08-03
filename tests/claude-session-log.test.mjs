@@ -1,9 +1,18 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, rm, symlink, utimes, writeFile } from "node:fs/promises";
+import {
+  appendFile,
+  mkdtemp,
+  mkdir,
+  rm,
+  symlink,
+  utimes,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import {
+  _cacheStats,
   claudeProjectsDir,
   estimateClaudeSessionLogTokenEstimates,
 } from "../collector/claude-session-log.mjs";
@@ -319,6 +328,144 @@ test("can be disabled with the USAGE_HUB_CLAUDE_LOG_ESTIMATE toggle", async () =
   );
 
   assert.deepEqual(estimates, []);
+});
+
+test("serves warm scans from the per-file cache with identical estimates", async () => {
+  const now = fixedNoon();
+  const recent = now - HOUR_MS;
+  await withClaudeConfigDir(
+    {
+      "session-1.jsonl": [
+        assistantLine(recent, { messageId: "msg-a", input: 100, output: 10 }),
+      ],
+      "session-2.jsonl": [
+        assistantLine(recent, { messageId: "msg-b", input: 200, output: 20 }),
+      ],
+    },
+    async (configDir) => {
+      const env = { CLAUDE_CONFIG_DIR: configDir };
+      const cold = await estimateClaudeSessionLogTokenEstimates(env, now);
+      const coldStats = _cacheStats();
+      assert.equal(coldStats.files, 2);
+      assert.equal(coldStats.misses, 2);
+      assert.equal(coldStats.hits, 0);
+
+      const warm = await estimateClaudeSessionLogTokenEstimates(env, now);
+      const warmStats = _cacheStats();
+      assert.equal(warmStats.files, 2);
+      assert.equal(warmStats.hits, 2);
+      assert.equal(warmStats.misses, 0);
+      // Correctness invariant: cached records must aggregate to exactly the
+      // same estimates a from-disk scan produces.
+      assert.deepEqual(warm, cold);
+    },
+  );
+});
+
+test("re-parses only files that changed and folds in their new totals", async () => {
+  const now = fixedNoon();
+  const recent = now - HOUR_MS;
+  await withClaudeConfigDir(
+    {
+      "session-1.jsonl": [
+        assistantLine(recent, { messageId: "msg-a", input: 100, output: 10 }),
+      ],
+      "session-2.jsonl": [
+        assistantLine(recent, { messageId: "msg-b", input: 200, output: 20 }),
+      ],
+    },
+    async (configDir, projectDir) => {
+      const env = { CLAUDE_CONFIG_DIR: configDir };
+      await estimateClaudeSessionLogTokenEstimates(env, now);
+
+      await appendFile(
+        join(projectDir, "session-2.jsonl"),
+        `${assistantLine(recent, { messageId: "msg-c", input: 40, output: 4 })}\n`,
+      );
+      const estimates = await estimateClaudeSessionLogTokenEstimates(env, now);
+      const stats = _cacheStats();
+      assert.equal(stats.hits, 1);
+      assert.equal(stats.misses, 1);
+      const rolling = estimates.find(
+        (estimate) => estimate.periodId === "rolling_7d",
+      );
+      assert.equal(rolling.totalTokens, 374);
+      assert.equal(rolling.inputTokens, 340);
+      assert.equal(rolling.outputTokens, 34);
+    },
+  );
+});
+
+test("evicts cache entries for files that leave the mtime window", async () => {
+  const now = fixedNoon();
+  const recent = now - HOUR_MS;
+  await withClaudeConfigDir(
+    {
+      "session-keep.jsonl": [
+        assistantLine(recent, { messageId: "msg-keep", input: 100, output: 10 }),
+      ],
+      "session-age-out.jsonl": [
+        assistantLine(recent, { messageId: "msg-old", input: 500, output: 50 }),
+      ],
+    },
+    async (configDir, projectDir) => {
+      const env = { CLAUDE_CONFIG_DIR: configDir };
+      await estimateClaudeSessionLogTokenEstimates(env, now);
+      assert.equal(_cacheStats().files, 2);
+
+      const staleSeconds = (now - 10 * DAY_MS) / 1000;
+      await utimes(
+        join(projectDir, "session-age-out.jsonl"),
+        staleSeconds,
+        staleSeconds,
+      );
+      const estimates = await estimateClaudeSessionLogTokenEstimates(env, now);
+      const stats = _cacheStats();
+      assert.equal(stats.files, 1);
+      assert.equal(stats.hits, 1);
+      assert.equal(stats.misses, 0);
+      const rolling = estimates.find(
+        (estimate) => estimate.periodId === "rolling_7d",
+      );
+      assert.equal(rolling.totalTokens, 110);
+    },
+  );
+});
+
+test("skips oversized lines and marks the estimate approximate", async () => {
+  const now = fixedNoon();
+  const recent = now - HOUR_MS;
+  const oversizedLine =
+    assistantLine(recent, {
+      messageId: "msg-huge",
+      input: 999_999,
+      output: 999_999,
+    }) + " ".repeat(4 * 1024 * 1024);
+  await withClaudeConfigDir(
+    {
+      "session-1.jsonl": [
+        assistantLine(recent, { messageId: "msg-ok", input: 100, output: 10 }),
+        oversizedLine,
+      ],
+    },
+    async (configDir) => {
+      const env = { CLAUDE_CONFIG_DIR: configDir };
+      const estimates = await estimateClaudeSessionLogTokenEstimates(env, now);
+      const rolling = estimates.find(
+        (estimate) => estimate.periodId === "rolling_7d",
+      );
+      assert.equal(rolling.totalTokens, 110);
+      assert.equal(rolling.estimated, true);
+      assert.match(rolling.assumption, /4MB/);
+      assert.match(rolling.assumption, /approximate/);
+
+      // The skipped-line count is cached with the file, so a warm scan must
+      // still report the estimate as approximate.
+      const warm = await estimateClaudeSessionLogTokenEstimates(env, now);
+      assert.equal(_cacheStats().hits, 1);
+      assert.deepEqual(warm, estimates);
+    },
+  );
 });
 
 test("reports needs_configuration when the projects directory is missing", async () => {
