@@ -35,6 +35,16 @@ content or stores provider credentials in the repo or browser.
 Requirements: macOS or Linux, Node.js 22.13+.
 
 ```bash
+npx ai-usage-dashboard            # published from v0.10.0
+```
+
+This starts the local collector, serves the dashboard, and opens your
+browser. On macOS, `npx ai-usage-dashboard menubar` installs and launches
+the bundled menu bar app.
+
+Or from source:
+
+```bash
 git clone https://github.com/0xBigotry7/ai-usage-dashboard.git
 cd ai-usage-dashboard
 npm ci

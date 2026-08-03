@@ -11,6 +11,27 @@ the version links below resolve once their tags are pushed.
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-08-04
+
+### Added
+
+- The project is now installable from npm: `npx ai-usage-dashboard` starts
+  the local collector plus the prebuilt web dashboard and opens the browser;
+  `ai-usage-dashboard collector` runs the collector alone, and
+  `ai-usage-dashboard menubar` (macOS) installs the bundled prebuilt menu
+  bar app into `~/Applications` and launches it. The tarball ships `bin/`,
+  `collector/`, the prebuilt `dist/` web output, and `prebuilt/menubar.zip`
+  (macOS arm64; other platforms use the web dashboard). The release
+  workflow publishes to npm when an `NPM_TOKEN` secret is configured and
+  skips with a notice otherwise.
+
+### Changed
+
+- `vinext` moved from devDependencies to dependencies (it serves the
+  prebuilt `dist/` at runtime); `next`, `react`, `react-dom`, and
+  `drizzle-orm` moved to devDependencies — they are bundled into `dist/`
+  at build time and are not needed at runtime.
+
 ## [0.9.1] - 2026-08-03
 
 ### Added
@@ -208,6 +229,7 @@ the version links below resolve once their tags are pushed.
   dated in the future.
 
 [Unreleased]: https://github.com/0xBigotry7/ai-usage-dashboard/compare/v0.8.3...HEAD
+[0.10.0]: https://github.com/0xBigotry7/ai-usage-dashboard/releases/tag/v0.10.0
 [0.9.1]: https://github.com/0xBigotry7/ai-usage-dashboard/releases/tag/v0.9.1
 [0.9.0]: https://github.com/0xBigotry7/ai-usage-dashboard/releases/tag/v0.9.0
 [0.8.3]: https://github.com/0xBigotry7/ai-usage-dashboard/releases/tag/v0.8.3
