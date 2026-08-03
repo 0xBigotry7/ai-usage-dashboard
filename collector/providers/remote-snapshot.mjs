@@ -44,7 +44,16 @@ async function login(origin, viewCodePath) {
   if (!response.ok) {
     throw new Error(`云端查看码验证返回 HTTP ${response.status}`);
   }
-  const setCookie = response.headers.get("set-cookie");
+  // getSetCookie keeps multiple Set-Cookie headers separate; the joined
+  // "set-cookie" string cannot be split safely (cookie attributes contain
+  // commas), so only fall back to it when getSetCookie is unavailable.
+  const setCookies =
+    typeof response.headers.getSetCookie === "function"
+      ? response.headers.getSetCookie()
+      : [];
+  const setCookie =
+    setCookies.find((value) => value?.trim()) ??
+    response.headers.get("set-cookie");
   const cookie = setCookie?.split(";", 1)[0]?.trim();
   if (!cookie) throw new Error("云端没有返回查看会话");
   sessionCookie = cookie;

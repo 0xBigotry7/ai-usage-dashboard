@@ -90,3 +90,26 @@ export class HistoryStore {
     this.database.close();
   }
 }
+
+const NOOP_HISTORY_STORE = {
+  save() {},
+  recent() {
+    return [];
+  },
+  close() {},
+};
+
+// Returns a working HistoryStore, or a no-op stub when the local database
+// cannot be opened (for example a corrupt ~/.usage-hub/usage.db), so the
+// collector keeps serving live quota data without local history.
+export function createHistoryStore(path) {
+  try {
+    return new HistoryStore(path);
+  } catch (error) {
+    console.warn(
+      `Usage history store unavailable (${error?.message || error}); ` +
+        `continuing without local history.`,
+    );
+    return NOOP_HISTORY_STORE;
+  }
+}

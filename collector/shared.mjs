@@ -5,6 +5,40 @@ import pkg from "../package.json" with { type: "json" };
 
 export const HUB_VERSION = pkg.version;
 
+export function resolvePollIntervalMs(
+  raw,
+  { fallbackMs = 60_000, minimumMs = 30_000 } = {},
+) {
+  const trimmed = String(raw ?? "").trim();
+  const parsed = trimmed === "" ? fallbackMs : Number(trimmed);
+  if (!Number.isFinite(parsed)) {
+    console.warn(
+      `Invalid USAGE_HUB_POLL_INTERVAL_MS value "${raw}"; falling back to ${fallbackMs}ms.`,
+    );
+    return Math.max(minimumMs, fallbackMs);
+  }
+  return Math.max(minimumMs, parsed);
+}
+
+export function parseEnvAssignment(rawLine) {
+  const line = String(rawLine ?? "").trim();
+  if (!line || line.startsWith("#")) return null;
+  const assignment = line.startsWith("export ")
+    ? line.slice("export ".length).trim()
+    : line;
+  const separator = assignment.indexOf("=");
+  if (separator <= 0) return null;
+  const key = assignment.slice(0, separator).trim();
+  let value = assignment.slice(separator + 1).trim();
+  if (
+    (value.startsWith('"') && value.endsWith('"')) ||
+    (value.startsWith("'") && value.endsWith("'"))
+  ) {
+    value = value.slice(1, -1);
+  }
+  return { key, value };
+}
+
 export function clampPercent(value) {
   if (!Number.isFinite(value)) return null;
   return Math.max(0, Math.min(100, Math.round(value * 10) / 10));

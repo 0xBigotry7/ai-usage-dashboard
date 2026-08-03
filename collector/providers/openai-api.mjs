@@ -13,6 +13,10 @@ const OPENAI_API = {
 const DEFAULT_USAGE_URL =
   "https://api.openai.com/v1/organization/usage/completions";
 const PERIOD_SECONDS = 7 * 24 * 60 * 60;
+// A 7-day span can cross 8 UTC day buckets; request more than enough per page
+// and follow the pagination cursor with a hard page cap as a safety net.
+const PAGE_BUCKET_LIMIT = 31;
+const MAX_USAGE_PAGES = 5;
 
 function safeCount(value) {
   const number = Number(value);
@@ -112,12 +116,15 @@ export async function collectOpenAIAdminUsage(env = process.env) {
   if (!adminKey) {
     const error = new Error("缺少 OPENAI_ADMIN_KEY");
     error.status = 401;
-    return providerError(
+    const result = providerError(
       OPENAI_API,
       error,
       "等待 OpenAI Admin API Key",
       updatedAt,
     );
+    result.state = "needs_configuration";
+    result.tokenUsage = null;
+    return result;
   }
 
   try {
@@ -127,18 +134,26 @@ export async function collectOpenAIAdminUsage(env = process.env) {
       String(Math.floor(Date.now() / 1000) - PERIOD_SECONDS),
     );
     endpoint.searchParams.set("bucket_width", "1d");
-    endpoint.searchParams.set("limit", "7");
+    endpoint.searchParams.set("limit", String(PAGE_BUCKET_LIMIT));
     endpoint.searchParams.append("group_by[]", "model");
 
-    const payload = await fetchJson(endpoint, {
-      headers: {
-        Authorization: `Bearer ${adminKey}`,
-        Accept: "application/json",
-        "Content-Type": "application/json",
-        "User-Agent": `AI-Usage-Dashboard/${HUB_VERSION}`,
-      },
-    });
-    return normalizeOpenAIAdminUsage(payload, updatedAt);
+    const headers = {
+      Authorization: `Bearer ${adminKey}`,
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      "User-Agent": `AI-Usage-Dashboard/${HUB_VERSION}`,
+    };
+    const data = [];
+    let pageCursor = null;
+    for (let page = 0; page < MAX_USAGE_PAGES; page += 1) {
+      const pageUrl = new URL(endpoint);
+      if (pageCursor) pageUrl.searchParams.set("page", pageCursor);
+      const payload = await fetchJson(pageUrl, { headers });
+      if (Array.isArray(payload?.data)) data.push(...payload.data);
+      if (!payload?.has_more || !payload?.next_page) break;
+      pageCursor = String(payload.next_page);
+    }
+    return normalizeOpenAIAdminUsage({ data }, updatedAt);
   } catch (error) {
     return {
       ...providerError(

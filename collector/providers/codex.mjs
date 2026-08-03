@@ -86,8 +86,11 @@ export async function collectCodexUsage(env = process.env) {
   let logEstimates = [];
   try {
     logEstimates = await estimateCodexSessionLogTokenEstimates(env);
-  } catch {
+  } catch (error) {
     // Quota collection should continue if local logs are unavailable.
+    console.warn(
+      `Codex session-log token estimate failed: ${error?.message || error}`,
+    );
   }
 
   try {
