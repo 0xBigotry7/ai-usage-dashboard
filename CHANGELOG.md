@@ -11,6 +11,33 @@ the version links below resolve once their tags are pushed.
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-08-03
+
+### Added
+
+- The macOS menu bar app now discovers Node.js from Homebrew, nvm, mise,
+  asdf, or the login shell PATH (override with `USAGE_HUB_NODE`), verifies
+  the 22.13 floor, shows an actionable menu bar warning when no usable
+  runtime is found, and logs its collector to
+  `~/Library/Logs/AIUsageDashboard/collector.log` instead of discarding
+  output.
+- An SVG favicon.
+
+### Changed
+
+- Session-log scanners keep a per-file cache: unchanged files are never
+  re-opened, making warm scans ~13x faster with zero file reads on a
+  typical refresh; entries leaving the seven-day window are evicted.
+- README restructured product-first: a concise pitch, quickstart, and menu
+  bar install up top, all concepts and deployment detail in a second part.
+  The zh-CN mirror matches.
+
+### Fixed
+
+- Log lines longer than 4 MB are skipped while streaming instead of being
+  buffered whole, so a corrupted no-newline session file can no longer
+  balloon collector memory; skipped lines mark the estimate as approximate.
+
 ## [0.9.0] - 2026-08-03
 
 ### Added
@@ -181,6 +208,7 @@ the version links below resolve once their tags are pushed.
   dated in the future.
 
 [Unreleased]: https://github.com/0xBigotry7/ai-usage-dashboard/compare/v0.8.3...HEAD
+[0.9.1]: https://github.com/0xBigotry7/ai-usage-dashboard/releases/tag/v0.9.1
 [0.9.0]: https://github.com/0xBigotry7/ai-usage-dashboard/releases/tag/v0.9.0
 [0.8.3]: https://github.com/0xBigotry7/ai-usage-dashboard/releases/tag/v0.8.3
 [0.8.2]: https://github.com/0xBigotry7/ai-usage-dashboard/releases/tag/v0.8.2
