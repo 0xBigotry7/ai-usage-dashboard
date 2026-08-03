@@ -179,6 +179,7 @@ private final class UsageStore: ObservableObject {
     @Published var notificationsEnabled = false
     @Published var notificationThreshold = 80
     @Published var notificationMessage: String?
+    @Published var collectorFailure: String?
 
     private let endpoint = URL(string: "http://127.0.0.1:4317/api/usage")!
     private var refreshTimer: Timer?
@@ -187,7 +188,17 @@ private final class UsageStore: ObservableObject {
     private var pendingNotificationKeys: Set<String> = []
 
     var hasDegradedData: Bool {
-        errorMessage != nil || providers.contains(where: \.isDegraded)
+        activeCollectorFailure != nil
+            || errorMessage != nil
+            || providers.contains(where: \.isDegraded)
+    }
+
+    // An externally launched collector (`npm run local`) can still serve
+    // data on the same port; only surface the bundled-runtime failure while
+    // nothing is answering there.
+    var activeCollectorFailure: String? {
+        guard let collectorFailure else { return nil }
+        return providers.isEmpty || errorMessage != nil ? collectorFailure : nil
     }
 
     var menuTitle: String {
@@ -206,7 +217,10 @@ private final class UsageStore: ObservableObject {
                 return "\(provider.shortName.uppercased()) \(value)"
             }
 
-        return summaries.isEmpty ? "AI —" : summaries.joined(separator: " · ")
+        if summaries.isEmpty {
+            return activeCollectorFailure == nil ? "AI —" : "AI ⚠"
+        }
+        return summaries.joined(separator: " · ")
     }
 
     init() {
@@ -508,8 +522,12 @@ private struct MenuBarPanel: View {
                 Text(statusText)
                     .font(.system(size: 10))
                     .foregroundStyle(
-                        store.errorMessage == nil ? Color.secondary : Color.orange
+                        store.errorMessage == nil
+                            && store.activeCollectorFailure == nil
+                            ? Color.secondary
+                            : Color.orange
                     )
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             Spacer()
@@ -536,6 +554,9 @@ private struct MenuBarPanel: View {
     }
 
     private var statusText: String {
+        if let collectorFailure = store.activeCollectorFailure {
+            return collectorFailure
+        }
         if let errorMessage = store.errorMessage { return errorMessage }
         guard let lastUpdated = store.lastUpdated else { return "Contacting local collector…" }
         return "Collector \(freshnessText(lastUpdated))"
@@ -548,7 +569,11 @@ private struct MenuBarPanel: View {
                 .foregroundStyle(.secondary)
             Text("No providers to show yet")
                 .font(.system(size: 12, weight: .medium))
-            Text(store.errorMessage ?? "Run npm run local first")
+            Text(
+                store.activeCollectorFailure
+                    ?? store.errorMessage
+                    ?? "Run npm run local first"
+            )
                 .font(.system(size: 10))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -1296,6 +1321,205 @@ private extension Color {
     }
 }
 
+// MARK: - Collector Node.js runtime discovery
+
+// The bundled collector uses `node:sqlite`, so runtimes older than this
+// floor crash immediately on startup.
+private let minimumNodeVersion = NodeVersion(major: 22, minor: 13, patch: 0)
+private let collectorLogDisplayPath =
+    "~/Library/Logs/AIUsageDashboard/collector.log"
+private let collectorLogMaxBytes = 5 * 1024 * 1024
+
+private struct NodeVersion: Comparable, CustomStringConvertible {
+    let major: Int
+    let minor: Int
+    let patch: Int
+
+    var description: String { "v\(major).\(minor).\(patch)" }
+
+    static func < (lhs: NodeVersion, rhs: NodeVersion) -> Bool {
+        (lhs.major, lhs.minor, lhs.patch) < (rhs.major, rhs.minor, rhs.patch)
+    }
+
+    /// Parses `node --version` output ("v22.13.0") or a version-manager
+    /// directory name ("22.13.0"); nil without a leading major.minor pair.
+    /// Trailing pre-release or build suffixes after the patch are ignored.
+    static func parse(_ text: String) -> NodeVersion? {
+        var value = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if value.hasPrefix("v") { value.removeFirst() }
+        let parts = value.split(
+            separator: ".",
+            maxSplits: 2,
+            omittingEmptySubsequences: false
+        )
+        guard
+            parts.count >= 2,
+            let major = Int(parts[0]),
+            let minor = Int(parts[1])
+        else {
+            return nil
+        }
+        let patch = parts.count == 3
+            ? Int(parts[2].prefix(while: \.isNumber)) ?? 0
+            : 0
+        return NodeVersion(major: major, minor: minor, patch: patch)
+    }
+}
+
+private struct NodeDiscovery {
+    let nodeURL: URL?
+    let nodeVersion: NodeVersion?
+    let bestRejectedVersion: NodeVersion?
+}
+
+/// Locates a Node.js runtime able to run the bundled collector. Probes, in
+/// order: the USAGE_HUB_NODE override, Homebrew and system paths, nvm,
+/// mise, and asdf installs (newest first), then the login shell's PATH.
+/// The first candidate whose `--version` meets the floor wins; the best
+/// rejected version is kept for the failure message.
+private func discoverNodeRuntime(
+    environment: [String: String] = ProcessInfo.processInfo.environment
+) -> NodeDiscovery {
+    let home = FileManager.default.homeDirectoryForCurrentUser.path
+    let candidateGroups: [() -> [String]] = [
+        {
+            let override = environment["USAGE_HUB_NODE"]?
+                .trimmingCharacters(in: .whitespaces) ?? ""
+            return override.isEmpty ? [] : [override]
+        },
+        { ["/opt/homebrew/bin/node", "/usr/local/bin/node"] },
+        { versionManagerNodeCandidates(installRoot: "\(home)/.nvm/versions/node") },
+        { versionManagerNodeCandidates(installRoot: "\(home)/.local/share/mise/installs/node") },
+        { versionManagerNodeCandidates(installRoot: "\(home)/.asdf/installs/nodejs") },
+        { loginShellNodePath().map { [$0] } ?? [] },
+    ]
+
+    var bestRejected: NodeVersion?
+    var probed = Set<String>()
+    for group in candidateGroups {
+        for candidate in group() {
+            guard probed.insert(candidate).inserted else { continue }
+            guard let version = probeNodeVersion(at: candidate) else { continue }
+            if version >= minimumNodeVersion {
+                return NodeDiscovery(
+                    nodeURL: URL(fileURLWithPath: candidate),
+                    nodeVersion: version,
+                    bestRejectedVersion: bestRejected
+                )
+            }
+            NSLog(
+                "Rejected Node.js %@ at %@: the collector needs %@ or newer",
+                version.description,
+                candidate,
+                minimumNodeVersion.description
+            )
+            if bestRejected.map({ version > $0 }) ?? true {
+                bestRejected = version
+            }
+        }
+    }
+    return NodeDiscovery(
+        nodeURL: nil,
+        nodeVersion: nil,
+        bestRejectedVersion: bestRejected
+    )
+}
+
+/// Lists a version manager's Node installs (for example
+/// ~/.nvm/versions/node/v22.13.0/bin/node) newest first, so the
+/// accept-first probe prefers the latest install.
+private func versionManagerNodeCandidates(installRoot: String) -> [String] {
+    guard
+        let entries = try? FileManager.default
+            .contentsOfDirectory(atPath: installRoot)
+    else {
+        return []
+    }
+    return entries
+        .compactMap { entry -> (version: NodeVersion, path: String)? in
+            guard let version = NodeVersion.parse(entry) else { return nil }
+            return (version, "\(installRoot)/\(entry)/bin/node")
+        }
+        .sorted { $0.version > $1.version }
+        .map(\.path)
+}
+
+/// Runs `<candidate> --version` and parses the result; nil when the file
+/// is missing, not executable, or does not behave like Node.
+private func probeNodeVersion(at path: String) -> NodeVersion? {
+    guard FileManager.default.isExecutableFile(atPath: path) else { return nil }
+    guard let output = capturedOutput(of: path, arguments: ["--version"]) else {
+        return nil
+    }
+    return NodeVersion.parse(output)
+}
+
+/// Resolves `node` through the user's login shell, which loads the PATH
+/// set up by tools this discovery does not know about.
+private func loginShellNodePath() -> String? {
+    guard
+        let output = capturedOutput(
+            of: "/bin/zsh",
+            arguments: ["-lc", "command -v node"]
+        )
+    else {
+        return nil
+    }
+    let path = output.trimmingCharacters(in: .whitespacesAndNewlines)
+    return path.hasPrefix("/") ? path : nil
+}
+
+private func capturedOutput(
+    of executablePath: String,
+    arguments: [String]
+) -> String? {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: executablePath)
+    process.arguments = arguments
+    let stdout = Pipe()
+    process.standardOutput = stdout
+    process.standardError = FileHandle.nullDevice
+    do {
+        try process.run()
+    } catch {
+        return nil
+    }
+    let data = stdout.fileHandleForReading.readDataToEndOfFile()
+    process.waitUntilExit()
+    guard process.terminationStatus == 0 else { return nil }
+    return String(data: data, encoding: .utf8)
+}
+
+/// Opens ~/Library/Logs/AIUsageDashboard/collector.log for appending,
+/// truncating first when it exceeds 5 MB.
+private func openCollectorLog() -> FileHandle? {
+    let fileManager = FileManager.default
+    let directory = fileManager.homeDirectoryForCurrentUser
+        .appendingPathComponent("Library/Logs/AIUsageDashboard", isDirectory: true)
+    let logURL = directory.appendingPathComponent("collector.log")
+    do {
+        try fileManager.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        let attributes = try? fileManager.attributesOfItem(atPath: logURL.path)
+        let size = (attributes?[.size] as? NSNumber)?.intValue ?? 0
+        if attributes == nil || size > collectorLogMaxBytes {
+            try Data().write(to: logURL)
+        }
+        let handle = try FileHandle(forWritingTo: logURL)
+        try handle.seekToEnd()
+        return handle
+    } catch {
+        NSLog(
+            "Collector log unavailable at %@: %@",
+            logURL.path,
+            String(describing: error)
+        )
+        return nil
+    }
+}
+
 @MainActor
 private final class UsageMenuBarDelegate: NSObject, NSApplicationDelegate {
     private var store: UsageStore?
@@ -1303,10 +1527,12 @@ private final class UsageMenuBarDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private var popover: NSPopover?
     private var statusUpdateCancellable: AnyCancellable?
+    private var isTerminating = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        collectorProcess = startBundledCollector()
         let store = UsageStore()
+        self.store = store
+        startBundledCollector(reportingTo: store)
         let statusItemPositionKey =
             "NSStatusItem Preferred Position AIUsageDashboardUsage"
         if UserDefaults.standard.object(forKey: statusItemPositionKey) == nil {
@@ -1338,7 +1564,6 @@ private final class UsageMenuBarDelegate: NSObject, NSApplicationDelegate {
             )
         }
 
-        self.store = store
         self.statusItem = statusItem
         self.popover = popover
         updateStatusItem()
@@ -1350,33 +1575,44 @@ private final class UsageMenuBarDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        isTerminating = true
+        collectorProcess?.terminationHandler = nil
         if collectorProcess?.isRunning == true {
             collectorProcess?.terminate()
         }
     }
 
-    private func startBundledCollector() -> Process? {
-        guard
-            let resourceURL = Bundle.main.resourceURL,
-            let nodeURL = [
-                "/opt/homebrew/bin/node",
-                "/usr/local/bin/node",
-            ]
-            .map(URL.init(fileURLWithPath:))
-            .first(where: {
-                FileManager.default.isExecutableFile(atPath: $0.path)
-            })
-        else {
-            NSLog("Bundled collector not started: Node.js was not found")
-            return nil
-        }
-
+    private func startBundledCollector(reportingTo store: UsageStore) {
+        guard let resourceURL = Bundle.main.resourceURL else { return }
         let collectorURL = resourceURL
             .appendingPathComponent("collector", isDirectory: true)
             .appendingPathComponent("server.mjs")
         guard FileManager.default.fileExists(atPath: collectorURL.path) else {
             // `swift run` intentionally keeps the collector external.
-            return nil
+            return
+        }
+
+        let discovery = discoverNodeRuntime()
+        guard
+            let nodeURL = discovery.nodeURL,
+            let nodeVersion = discovery.nodeVersion
+        else {
+            let bestFound = discovery.bestRejectedVersion
+                .map { " (best found: \($0))" } ?? ""
+            let failure = "Node.js \(minimumNodeVersion.major)."
+                + "\(minimumNodeVersion.minor)+ not found\(bestFound). "
+                + "Install via Homebrew or set USAGE_HUB_NODE."
+            store.collectorFailure = failure
+            NSLog("Bundled collector not started: %@", failure)
+            return
+        }
+
+        let logHandle = openCollectorLog()
+        if let logHandle,
+           let banner = "[UsageMenuBar] \(Date()) starting collector with "
+               .appending("Node.js \(nodeVersion) at \(nodeURL.path)\n")
+               .data(using: .utf8) {
+            try? logHandle.write(contentsOf: banner)
         }
 
         let process = Process()
@@ -1390,18 +1626,32 @@ private final class UsageMenuBarDelegate: NSObject, NSApplicationDelegate {
             "USAGE_HUB_HOST": "127.0.0.1",
             "USAGE_HUB_PORT": "4317",
         ]) { _, bundledValue in bundledValue }
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
+        process.standardOutput = logHandle ?? FileHandle.nullDevice
+        process.standardError = logHandle ?? FileHandle.nullDevice
+        process.terminationHandler = { [weak self] child in
+            let status = child.terminationStatus
+            Task { @MainActor in
+                self?.noteCollectorExit(status: status)
+            }
+        }
         do {
             try process.run()
-            return process
+            collectorProcess = process
         } catch {
+            store.collectorFailure =
+                "Collector failed to start; see \(collectorLogDisplayPath)"
             NSLog(
                 "Bundled collector failed to start: %@",
                 String(describing: error)
             )
-            return nil
         }
+    }
+
+    private func noteCollectorExit(status: Int32) {
+        guard !isTerminating else { return }
+        store?.collectorFailure =
+            "Collector exited (status \(status)); see \(collectorLogDisplayPath)"
+        NSLog("Bundled collector exited with status %d", status)
     }
 
     @objc

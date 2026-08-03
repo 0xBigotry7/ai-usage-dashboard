@@ -49,9 +49,14 @@ open "dist/AI Usage Dashboard Menu Bar.app"
 
 The build reads its version from the root `package.json`, bundles the loopback
 collector and SVG provider logos, and applies an ad-hoc signature so native
-login-item registration can work for local builds. The packaged app starts the
-collector itself; `npm run menubar` development still needs `npm run collector`
-in another terminal. Keep the app in
+login-item registration can work for local builds. The packaged app bundles the
+collector's JavaScript but not a Node.js runtime: it starts the collector with
+your installed Node.js 22.13 or newer, searched in `USAGE_HUB_NODE` (if set),
+the Homebrew and `/usr/local` paths, nvm, mise, and asdf installs, and finally
+the login shell's `PATH`. If none qualifies, the menu bar item shows `AI ⚠` and
+the popover explains what to install; collector output is logged to
+`~/Library/Logs/AIUsageDashboard/collector.log`. `npm run menubar` development
+still needs `npm run collector` in another terminal. Keep the app in
 `/Applications` before enabling **Launch at Login**. macOS may ask you to confirm
 it under **System Settings › General › Login Items**.
 
