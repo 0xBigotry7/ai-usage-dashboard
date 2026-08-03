@@ -63,12 +63,21 @@ export const providerAdapters = [
   },
 ];
 
-function enabledAdapters(env) {
-  const explicit = env.USAGE_HUB_PROVIDERS?.split(",")
-    .map((value) => value.trim().toLowerCase())
+function parseProviderList(value) {
+  const ids = value?.split(",")
+    .map((entry) => entry.trim().toLowerCase())
     .filter(Boolean);
-  const selected = explicit?.length ? new Set(explicit) : null;
+  return ids?.length ? new Set(ids) : null;
+}
+
+function enabledAdapters(env) {
+  const selected = parseProviderList(env.USAGE_HUB_PROVIDERS);
+  // Subtractive override: keep the default/auto-detected set but pin
+  // specific providers off (e.g. a laptop whose Claude usage is already
+  // reported by another machine via cloud sync).
+  const disabled = parseProviderList(env.USAGE_HUB_DISABLE_PROVIDERS);
   return providerAdapters.filter((adapter) => {
+    if (disabled?.has(adapter.id)) return false;
     if (selected) return selected.has(adapter.id);
     return adapter.defaultEnabled || adapter.configured?.(env);
   });
