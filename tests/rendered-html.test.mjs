@@ -2,12 +2,35 @@ import assert from "node:assert/strict";
 import { readFile, readdir } from "node:fs/promises";
 import test from "node:test";
 
+// The dashboard is split across a top-level component plus extracted
+// components, hooks, and lib helpers; assert against the combined sources.
+async function readDashboardSources() {
+  const files = [
+    new URL("../app/usage-dashboard.tsx", import.meta.url),
+    new URL("../lib/format.ts", import.meta.url),
+    new URL("../lib/provider-selectors.ts", import.meta.url),
+    new URL("../lib/usage-types.ts", import.meta.url),
+  ];
+  for (const dir of [
+    new URL("../app/components/", import.meta.url),
+    new URL("../app/hooks/", import.meta.url),
+  ]) {
+    for (const entry of await readdir(dir)) {
+      files.push(new URL(entry, dir));
+    }
+  }
+  const sources = await Promise.all(
+    files.map((file) => readFile(file, "utf8")),
+  );
+  return sources.join("\n");
+}
+
 test("build contains the dashboard, dedicated display, brands, and protected routes", async () => {
   const [page, displayPage, dashboard, providerLogo, layout, routes, clientAssets, brandAssets, publicAssets] =
     await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/display/page.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../app/usage-dashboard.tsx", import.meta.url), "utf8"),
+    readDashboardSources(),
     readFile(new URL("../app/provider-logo.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
     Promise.all([
