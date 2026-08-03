@@ -1,0 +1,80 @@
+name: Bug report
+description: Something in the dashboard, collector, or menu bar app is broken.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Please redact credentials, account IDs,
+        hostnames, home-directory paths, and real usage payloads before
+        pasting anything.
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      description: OS name and version.
+      placeholder: "macOS 15.5 / Ubuntu 24.04"
+    validations:
+      required: true
+  - type: input
+    id: node-version
+    attributes:
+      label: Node.js version
+      description: Output of `node --version`. The project requires Node >= 22.13.0.
+      placeholder: "v22.13.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: install-method
+    attributes:
+      label: Install method
+      options:
+        - Cloned repo, `npm run local`
+        - Cloned repo, collector + web dev server separately
+        - Packaged macOS menu bar build (`npm run build:menubar`)
+        - Hosted / Cloudflare Worker deployment
+        - Other (explain below)
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Minimal steps that trigger the problem.
+      placeholder: |
+        1. Configure provider X with ...
+        2. Run `npm run collector`
+        3. Open the dashboard and ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What happens instead, including any error card text or menu bar state.
+    validations:
+      required: true
+  - type: textarea
+    id: collector-log
+    attributes:
+      label: Collector log snippet (redacted)
+      description: |
+        Relevant collector output. Remove tokens, account IDs, hostnames, and
+        raw provider payloads before pasting.
+      render: text
+    validations:
+      required: false
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy check
+      options:
+        - label: I have removed credentials, account IDs, hostnames, paths, and real usage payloads from this report.
+          required: true

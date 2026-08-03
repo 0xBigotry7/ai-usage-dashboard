@@ -1,0 +1,83 @@
+name: New provider adapter proposal
+description: Propose built-in support for a new AI provider or coding agent.
+title: "[Adapter]: "
+labels: ["provider", "enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please read [docs/provider-development.md](https://github.com/0xBigotry7/ai-usage-dashboard/blob/main/docs/provider-development.md)
+        for the adapter contract and the "Design rules for expansion" in
+        [docs/roadmap.md](https://github.com/0xBigotry7/ai-usage-dashboard/blob/main/docs/roadmap.md)
+        first. A long list of logos backed by fragile scraping is not a project
+        goal — candidates need a trustworthy data source.
+  - type: input
+    id: provider-name
+    attributes:
+      label: Provider / tool name
+      placeholder: "Example AI"
+    validations:
+      required: true
+  - type: textarea
+    id: data-source
+    attributes:
+      label: Data source
+      description: |
+        Where would the adapter read usage from? An HTTPS endpoint (URL shape),
+        a local log or state file (path pattern), a CLI's machine-readable
+        output, or the custom sanitized snapshot protocol.
+    validations:
+      required: true
+  - type: dropdown
+    id: documented
+    attributes:
+      label: Is the data source documented and public?
+      options:
+        - Documented, public API
+        - Public but undocumented endpoint
+        - Local logs / state files
+        - Requires browser cookies or session scraping (unlikely to be accepted as default)
+        - Not sure
+    validations:
+      required: true
+  - type: checkboxes
+    id: capabilities
+    attributes:
+      label: Supported methods
+      description: Which signals can the source provide honestly, without fabricating a percentage?
+      options:
+        - label: Quota windows (used percent, limit, reset time)
+        - label: Exact or estimated token counts
+        - label: Balance / credits / cost
+        - label: Per-model breakdowns
+        - label: History over time
+  - type: textarea
+    id: credential-boundary
+    attributes:
+      label: Credential boundary
+      description: |
+        What credential does the adapter need (API key, OAuth token, none)?
+        Confirm the credential can stay in the local collector environment and
+        never appears in the returned provider object, per the adapter
+        contract.
+    validations:
+      required: true
+  - type: textarea
+    id: attribution
+    attributes:
+      label: Prior art and attribution
+      description: |
+        Existing implementations (e.g. in other dashboards or CLIs) you would
+        adapt from, with their licenses. Adapted code must be credited in
+        docs/attribution.md and THIRD_PARTY_NOTICES.md.
+    validations:
+      required: false
+  - type: checkboxes
+    id: rules
+    attributes:
+      label: Design rules
+      options:
+        - label: The adapter can fail without blocking the rest of the dashboard, and missing data will stay visibly absent instead of being fabricated.
+          required: true
+        - label: All test fixtures will be synthetic — no real usage payloads.
+          required: true

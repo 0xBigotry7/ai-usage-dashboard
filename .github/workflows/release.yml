@@ -1,0 +1,60 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22.13.0"
+          cache: npm
+
+      - run: npm ci
+      - run: npm run check
+      - run: npm run build:menubar
+
+      - name: Validate and package ad-hoc build
+        id: package
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          app="dist/AI Usage Dashboard Menu Bar.app"
+          plist="$app/Contents/Info.plist"
+          version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$plist")"
+          asset="AI-Usage-Dashboard-Menu-Bar-${version}-adhoc.zip"
+
+          plutil -lint "$plist"
+          xattr -cr "$app"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          /usr/bin/ditto --norsrc -c -k --keepParent "$app" "$RUNNER_TEMP/$asset"
+          mkdir "$RUNNER_TEMP/macos-package-proof"
+          /usr/bin/ditto -x -k "$RUNNER_TEMP/$asset" "$RUNNER_TEMP/macos-package-proof"
+          codesign --verify --deep --strict --verbose=2 \
+            "$RUNNER_TEMP/macos-package-proof/AI Usage Dashboard Menu Bar.app"
+          (
+            cd "$RUNNER_TEMP"
+            shasum -a 256 "$asset" > "$asset.sha256"
+          )
+
+          echo "asset=$asset" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            ${{ runner.temp }}/${{ steps.package.outputs.asset }}
+            ${{ runner.temp }}/${{ steps.package.outputs.asset }}.sha256
