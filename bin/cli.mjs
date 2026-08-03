@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * ai-usage-dashboard CLI.
+ * ai-usage-hub CLI.
  *
  * Commands:
  *   start (default)  Run the local collector and the prebuilt web dashboard.
@@ -34,18 +34,18 @@ const pkg = JSON.parse(
 
 if (!meetsNodeRequirement(process.versions.node, MINIMUM_NODE_VERSION)) {
   console.error(
-    `ai-usage-dashboard requires Node.js >= ${MINIMUM_NODE_VERSION}, ` +
+    `ai-usage-hub requires Node.js >= ${MINIMUM_NODE_VERSION}, ` +
       `but this is Node.js ${process.versions.node}.\n` +
       "Install a newer Node.js from https://nodejs.org and try again.",
   );
   process.exit(1);
 }
 
-const HELP = `ai-usage-dashboard ${pkg.version}
+const HELP = `ai-usage-hub ${pkg.version}
 A local-first AI quota, API usage, and token dashboard.
 
 Usage:
-  ai-usage-dashboard [command] [options]
+  ai-usage-hub [command] [options]
 
 Commands:
   start        Run the local collector and the web dashboard, then open the
@@ -80,7 +80,7 @@ function launchManaged(children, state, name, args, extraEnv = {}) {
   child.on("exit", (code, signal) => {
     if (!state.stopping) {
       console.error(
-        `[ai-usage-dashboard] ${name} exited unexpectedly (${signal || code}); shutting down.`,
+        `[ai-usage-hub] ${name} exited unexpectedly (${signal || code}); shutting down.`,
       );
       stopAll(children, state, code || 1);
     }
@@ -155,7 +155,7 @@ async function runStart() {
     openBrowser(url);
   } else {
     console.error(
-      `[ai-usage-dashboard] Dashboard did not answer on ${url} within 30s; ` +
+      `[ai-usage-hub] Dashboard did not answer on ${url} within 30s; ` +
         "it may still be starting. Check the log output above.",
     );
   }
@@ -197,7 +197,7 @@ function runMenubar() {
   if (process.platform !== "darwin") {
     console.error(
       "The menu bar app is macOS-only (prebuilt for Apple Silicon).\n" +
-        'On this platform, run "ai-usage-dashboard" to use the web dashboard.',
+        'On this platform, run "ai-usage-hub" to use the web dashboard.',
     );
     process.exit(1);
   }
@@ -242,8 +242,8 @@ function runMenubar() {
 
 const args = parseCliArgs(process.argv.slice(2));
 if (args.error) {
-  console.error(`ai-usage-dashboard: ${args.error}`);
-  console.error('Run "ai-usage-dashboard --help" for usage.');
+  console.error(`ai-usage-hub: ${args.error}`);
+  console.error('Run "ai-usage-hub --help" for usage.');
   process.exit(2);
 }
 if (args.version) {

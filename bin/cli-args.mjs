@@ -1,5 +1,5 @@
 /**
- * Pure argument-parsing helpers for the ai-usage-dashboard CLI.
+ * Pure argument-parsing helpers for the ai-usage-hub CLI.
  *
  * Kept free of side effects and of any imports beyond node:util so the
  * logic can be unit-tested without spawning processes.

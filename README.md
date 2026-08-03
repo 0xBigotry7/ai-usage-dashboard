@@ -35,11 +35,11 @@ content or stores provider credentials in the repo or browser.
 Requirements: macOS or Linux, Node.js 22.13+.
 
 ```bash
-npx ai-usage-dashboard            # published from v0.10.0
+npx ai-usage-hub            # published from v0.10.0
 ```
 
 This starts the local collector, serves the dashboard, and opens your
-browser. On macOS, `npx ai-usage-dashboard menubar` installs and launches
+browser. On macOS, `npx ai-usage-hub menubar` installs and launches
 the bundled menu bar app.
 
 Or from source:
