@@ -11,6 +11,48 @@ the version links below resolve once their tags are pushed.
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-08-03
+
+### Added
+
+- Claude Code provider adapter: observed input/output tokens for today and the
+  rolling seven days from local session logs (`~/.claude/projects`), with
+  request-level deduplication, subagent (sidechain) inclusion, per-model
+  totals, and an mtime pre-filter that keeps multi-gigabyte log trees fast.
+  Only numeric usage fields are read — never message content or credentials.
+- Community scaffolding: issue forms (bug, provider-endpoint break, adapter
+  proposal), a pull-request checklist, a code of conduct, Dependabot updates,
+  and a tag-triggered release workflow that builds, checks, and attaches the
+  packaged macOS menu bar app with its SHA-256 checksum.
+
+### Changed
+
+- The dashboard, collector, configuration scripts, and macOS menu bar now
+  speak English by default; date and number formatting follows the viewer's
+  locale instead of a hardcoded one.
+- History API responses over 48 hours are downsampled into hourly buckets so
+  weekly windows chart their full range instead of truncating at ~2 days.
+- CI now runs a Node 22/24 matrix, executes the collector tests on macOS, and
+  no longer installs an unused Python toolchain.
+
+### Fixed
+
+- A malformed `USAGE_HUB_POLL_INTERVAL_MS` no longer collapses the collector
+  into a 1 ms refresh loop.
+- The OpenAI usage adapter follows pagination, so seven-day totals no longer
+  silently drop a day.
+- A corrupted history database no longer crash-loops the collector; history
+  degrades to a no-op store while live quota collection continues.
+- Kimi millisecond rate-limit windows are no longer misread as seconds, and
+  unknown units skip the window instead of failing the provider.
+- Forced refreshes are no longer dropped when a periodic refresh is already
+  in flight.
+- The dashboard no longer re-renders every second, aborts superseded usage
+  polls, re-acquires the screen wake lock after the system releases it, and
+  returns Cmd/Ctrl+R to the browser.
+- Providers with a missing key now report "needs configuration" instead of an
+  authentication error.
+
 ## [0.8.3] - 2026-07-30
 
 ### Fixed
@@ -139,6 +181,7 @@ the version links below resolve once their tags are pushed.
   dated in the future.
 
 [Unreleased]: https://github.com/0xBigotry7/ai-usage-dashboard/compare/v0.8.3...HEAD
+[0.9.0]: https://github.com/0xBigotry7/ai-usage-dashboard/releases/tag/v0.9.0
 [0.8.3]: https://github.com/0xBigotry7/ai-usage-dashboard/releases/tag/v0.8.3
 [0.8.2]: https://github.com/0xBigotry7/ai-usage-dashboard/releases/tag/v0.8.2
 [0.8.1]: https://github.com/0xBigotry7/ai-usage-dashboard/releases/tag/v0.8.1

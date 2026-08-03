@@ -20,6 +20,7 @@ import { estimateNextResetAt } from "../lib/reset-estimate.ts";
 import { summarizeTokenCountRecords } from "../collector/session-log-estimate.mjs";
 import {
   fetchJson,
+  HUB_VERSION,
   parseEnvAssignment,
   resolvePollIntervalMs,
 } from "../collector/shared.mjs";
@@ -1081,7 +1082,7 @@ test("merges independently pushed provider rows without exposing legacy payloads
     merged.providers.map((provider) => provider.id),
     ["codex", "example-ai"],
   );
-  assert.equal(merged.collector.version, "0.8.3");
+  assert.equal(merged.collector.version, HUB_VERSION);
   assert.equal(merged.collector.syncMode, "multi-host-sanitized-push");
   assert.doesNotMatch(JSON.stringify(merged), /must-not-appear|accessToken/);
 });
