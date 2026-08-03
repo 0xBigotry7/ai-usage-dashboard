@@ -47,6 +47,27 @@ USAGE_HUB_CODEX_LOG_ESTIMATE=off npm run local
 
 Set `CODEX_HOME` if the CLI data directory is elsewhere.
 
+### Claude Code
+
+No configuration is required. The adapter enables itself when
+`~/.claude/projects` exists and reads the local Claude Code session logs
+(`~/.claude/projects/**/*.jsonl`). Set `CLAUDE_CONFIG_DIR` if Claude Code
+stores its data elsewhere; the logs are then read from
+`$CLAUDE_CONFIG_DIR/projects`. No credential is read or written.
+
+Only the numeric per-message `usage` fields, model IDs, timestamps, and the
+record IDs needed for retry deduplication are parsed. Prompts, replies, and
+tool output are never read. Entries logged more than once for the same API
+call are deduplicated, and subagent turns are included. Observed totals are
+reported twice: once from local midnight and once for the trailing seven days.
+Claude Code exposes no documented quota endpoint, so this adapter shows
+observed tokens only and does not invent a quota window, percentage, or reset
+time. Disable it with:
+
+```bash
+USAGE_HUB_CLAUDE_LOG_ESTIMATE=off npm run local
+```
+
 ### Kimi Code
 
 ```bash
@@ -206,8 +227,10 @@ and only credential-free normalized values are stored.
 | `GITHUB_COPILOT_MONTHLY_CREDIT_LIMIT` | local collector | Optional local comparison limit |
 | `USAGE_HUB_PROVIDERS` | local collector | Optional explicit comma-separated adapter IDs |
 | `CODEX_HOME` | local collector | Optional Codex data directory |
+| `CLAUDE_CONFIG_DIR` | local collector | Optional Claude Code data directory; session logs are read from `$CLAUDE_CONFIG_DIR/projects` |
 | `KIMI_CODE_HOME` | local collector | Optional Kimi data directory |
-| `USAGE_HUB_CODEX_LOG_ESTIMATE` | local collector | Set to `off` to disable local log estimation |
+| `USAGE_HUB_CODEX_LOG_ESTIMATE` | local collector | Set to `off` to disable Codex local log estimation |
+| `USAGE_HUB_CLAUDE_LOG_ESTIMATE` | local collector | Set to `off` to disable Claude Code local log estimation |
 | `USAGE_HUB_PUSH_URL` | local collector | Hosted `/api/ingest` endpoint |
 | `USAGE_HUB_PUSH_TOKEN` | local collector | Hosted ingest bearer secret |
 | `USAGE_HUB_CLOUD_URL` | local collector | Optional hosted root URL for merging additional sanitized providers |

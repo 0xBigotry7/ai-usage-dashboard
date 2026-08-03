@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -226,13 +226,17 @@ test("normalizes GitHub Copilot AI Credits with an optional monthly limit", () =
 });
 
 test("enables optional providers only after their local configuration exists", () => {
-  const defaultCatalog = providerCatalog({});
+  // Pin CLAUDE_CONFIG_DIR to an absent path so the catalog does not depend on
+  // whether the machine running the tests has Claude Code installed.
+  const absentClaudeDir = join(tmpdir(), `usage-hub-absent-claude-${process.pid}`);
+  const defaultCatalog = providerCatalog({ CLAUDE_CONFIG_DIR: absentClaudeDir });
   assert.deepEqual(
     defaultCatalog.filter((provider) => provider.enabled).map(({ id }) => id),
     ["codex", "kimi"],
   );
 
   const configuredCatalog = providerCatalog({
+    CLAUDE_CONFIG_DIR: absentClaudeDir,
     OPENROUTER_API_KEY: "synthetic-key",
     DEEPSEEK_API_KEY: "synthetic-key",
   });
@@ -242,6 +246,18 @@ test("enables optional providers only after their local configuration exists", (
       .map(({ id }) => id),
     ["codex", "kimi", "openrouter", "deepseek"],
   );
+
+  const claudeConfigDir = mkdtempSync(join(tmpdir(), "usage-hub-claude-"));
+  try {
+    mkdirSync(join(claudeConfigDir, "projects"), { recursive: true });
+    const claudeCatalog = providerCatalog({ CLAUDE_CONFIG_DIR: claudeConfigDir });
+    assert.deepEqual(
+      claudeCatalog.filter((provider) => provider.enabled).map(({ id }) => id),
+      ["codex", "claude", "kimi"],
+    );
+  } finally {
+    rmSync(claudeConfigDir, { recursive: true, force: true });
+  }
 });
 
 function syntheticProvider({
