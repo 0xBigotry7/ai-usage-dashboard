@@ -128,21 +128,21 @@ function formatPercent(value: number | null) {
 
 function formatNumber(value: number | null) {
   if (value === null) return "—";
-  return new Intl.NumberFormat("zh-CN", {
+  return new Intl.NumberFormat(undefined, {
     maximumFractionDigits: value % 1 ? 1 : 0,
   }).format(value);
 }
 
 function formatTokens(value: number | null) {
   if (value === null) return "—";
-  return new Intl.NumberFormat("zh-CN", {
+  return new Intl.NumberFormat(undefined, {
     notation: value >= 10_000 ? "compact" : "standard",
     maximumFractionDigits: value >= 1_000_000 ? 2 : 1,
   }).format(value);
 }
 
 function exactTokens(value: number) {
-  return `${new Intl.NumberFormat("zh-CN").format(value)} tokens`;
+  return `${new Intl.NumberFormat(undefined).format(value)} tokens`;
 }
 
 function formatBalance(value: number, unit: string) {
@@ -157,22 +157,22 @@ function formatBalance(value: number, unit: string) {
 }
 
 function formatCountdown(resetsAt: string | null) {
-  if (!resetsAt) return "未提供重置时间";
+  if (!resetsAt) return "no reset time provided";
   const difference = new Date(resetsAt).getTime() - Date.now();
-  if (!Number.isFinite(difference)) return "重置时间未知";
-  if (difference <= 0) return "等待刷新";
+  if (!Number.isFinite(difference)) return "reset time unknown";
+  if (difference <= 0) return "awaiting refresh";
   const minutes = Math.max(1, Math.floor(difference / 60_000));
   const days = Math.floor(minutes / 1440);
   const hours = Math.floor((minutes % 1440) / 60);
   const restMinutes = minutes % 60;
-  if (days > 0) return `${days}天 ${hours}小时后`;
-  if (hours > 0) return `${hours}小时 ${restMinutes}分钟后`;
-  return `${restMinutes}分钟后`;
+  if (days > 0) return `in ${days}d ${hours}h`;
+  if (hours > 0) return `in ${hours}h ${restMinutes}m`;
+  return `in ${restMinutes}m`;
 }
 
 function formatResetClock(resetsAt: string | null) {
-  if (!resetsAt) return "时间未知";
-  return new Intl.DateTimeFormat("zh-CN", {
+  if (!resetsAt) return "time unknown";
+  return new Intl.DateTimeFormat(undefined, {
     weekday: "short",
     hour: "2-digit",
     minute: "2-digit",
@@ -180,15 +180,15 @@ function formatResetClock(resetsAt: string | null) {
 }
 
 function formatShortDate(value: string) {
-  return new Intl.DateTimeFormat("zh-CN", {
+  return new Intl.DateTimeFormat(undefined, {
     month: "numeric",
     day: "numeric",
   }).format(new Date(value));
 }
 
 function formatUpdated(value: string | null) {
-  if (!value) return "尚未连接";
-  return new Intl.DateTimeFormat("zh-CN", {
+  if (!value) return "not connected yet";
+  return new Intl.DateTimeFormat(undefined, {
     month: "numeric",
     day: "numeric",
     hour: "2-digit",
@@ -198,16 +198,16 @@ function formatUpdated(value: string | null) {
 }
 
 function formatAge(value: string | null) {
-  if (!value) return "时间未知";
+  if (!value) return "time unknown";
   const ageMs = Date.now() - new Date(value).getTime();
-  if (!Number.isFinite(ageMs)) return "未知";
-  if (ageMs < 0) return "刚刚";
+  if (!Number.isFinite(ageMs)) return "unknown";
+  if (ageMs < 0) return "just now";
   const minutes = Math.floor(ageMs / 60_000);
-  if (minutes < 1) return "刚刚";
-  if (minutes < 60) return `${minutes} 分钟前`;
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes}m ago`;
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours} 小时前`;
-  return `${Math.floor(hours / 24)} 天前`;
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
 }
 
 function isProviderStale(provider: Provider) {
@@ -223,16 +223,16 @@ function isProviderStale(provider: Provider) {
 }
 
 function providerStateLabel(provider: Provider) {
-  if (isProviderStale(provider)) return "数据已过期";
+  if (isProviderStale(provider)) return "Data stale";
   switch (provider.state) {
     case "ready":
-      return "数据正常";
+      return "Live";
     case "needs_configuration":
-      return "等待配置";
+      return "Needs setup";
     case "auth_error":
-      return "需要登录";
+      return "Sign-in required";
     default:
-      return "连接异常";
+      return "Connection error";
   }
 }
 
@@ -259,28 +259,30 @@ function getTokenEstimates(provider: Provider) {
 }
 
 function tokenBasisLabel(basis: TokenUsage["basis"]) {
-  if (basis === "quota_percentage") return "配额百分比换算";
-  if (basis === "api_usage") return "官方 API 统计";
-  return "本机 CLI 日志";
+  if (basis === "quota_percentage") return "quota percentage conversion";
+  if (basis === "api_usage") return "official API usage";
+  return "local CLI logs";
 }
 
 function tokenPeriodLabel(usage: TokenUsage) {
-  if (usage.periodId === "today") return "今日";
-  if (usage.periodId === "weekly_cycle") return "订阅周期";
-  if (usage.periodId === "weekly_quota") return "本周配额";
-  if (usage.periodId === "rolling_7d") return "过去 7 天";
-  return usage.basis === "quota_percentage" ? "本周配额" : "统计周期";
+  if (usage.periodId === "today") return "Today";
+  if (usage.periodId === "weekly_cycle") return "Subscription cycle";
+  if (usage.periodId === "weekly_quota") return "Weekly quota";
+  if (usage.periodId === "rolling_7d") return "Past 7 days";
+  return usage.basis === "quota_percentage" ? "Weekly quota" : "Reporting period";
 }
 
 function tokenScopeLabel(usage: TokenUsage) {
-  if (usage.scope === "account" || usage.basis === "api_usage") return "账户级";
+  if (usage.scope === "account" || usage.basis === "api_usage") {
+    return "account-wide";
+  }
   if (
     usage.scope === "calibrated_quota" ||
     usage.basis === "quota_percentage"
   ) {
-    return "校准容量";
+    return "calibrated capacity";
   }
-  return "仅本机";
+  return "this device only";
 }
 
 function tokenEstimateKey(usage: TokenUsage, index: number) {
@@ -407,7 +409,7 @@ function WindowRow({
         <div>
           <span className="window-row__label">{window.label}</span>
           <span className="window-row__reset">
-            {reset.estimated && reset.resetsAt ? "预计 " : ""}
+            {reset.estimated && reset.resetsAt ? "est. " : ""}
             {formatCountdown(reset.resetsAt)}
           </span>
         </div>
@@ -418,7 +420,7 @@ function WindowRow({
       <div
         className="meter"
         role="progressbar"
-        aria-label={`${window.label}已使用`}
+        aria-label={`${window.label} used`}
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={window.usedPercent ?? undefined}
@@ -427,16 +429,16 @@ function WindowRow({
       </div>
       <div className="window-row__detail">
         <span>
-          {reset.estimated && reset.resetsAt ? "约 " : ""}
-          {formatResetClock(reset.resetsAt)} 重置
-          {reset.estimated && reset.resetsAt ? " · 历史周期推算" : ""}
+          Resets {reset.estimated && reset.resetsAt ? "~" : ""}
+          {formatResetClock(reset.resetsAt)}
+          {reset.estimated && reset.resetsAt ? " · estimated from history" : ""}
         </span>
         {window.limit !== null ? (
           <span>
             {formatNumber(window.used)} / {formatNumber(window.limit)}
           </span>
         ) : (
-          <span>平台真实配额</span>
+          <span>Provider-reported quota</span>
         )}
       </div>
     </div>
@@ -464,32 +466,32 @@ function TokenComposition({
   }
   return (
     <div className={`token-composition ${compact ? "token-composition--compact" : ""}`}>
-      <div aria-label="总量等于输入加输出">
+      <div aria-label="Total equals input plus output">
         <span>
-          输入 <b title={exactTokens(inputTokens)}>{formatTokens(inputTokens)}</b>
+          Input <b title={exactTokens(inputTokens)}>{formatTokens(inputTokens)}</b>
         </span>
         <i aria-hidden="true">+</i>
         <span>
-          输出 <b title={exactTokens(outputTokens)}>{formatTokens(outputTokens)}</b>
+          Output <b title={exactTokens(outputTokens)}>{formatTokens(outputTokens)}</b>
         </span>
         <i aria-hidden="true">=</i>
-        <span>总计</span>
+        <span>Total</span>
       </div>
       {!compact &&
       (typeof cachedInputTokens === "number" ||
         typeof reasoningOutputTokens === "number") ? (
         <small>
           {typeof cachedInputTokens === "number"
-            ? `其中缓存输入 ${formatTokens(cachedInputTokens)}`
+            ? `incl. cached input ${formatTokens(cachedInputTokens)}`
             : ""}
           {typeof cachedInputTokens === "number" &&
           typeof reasoningOutputTokens === "number"
             ? " · "
             : ""}
           {typeof reasoningOutputTokens === "number"
-            ? `其中推理输出 ${formatTokens(reasoningOutputTokens)}`
+            ? `incl. reasoning output ${formatTokens(reasoningOutputTokens)}`
             : ""}
-          {" · "}缓存输入与推理输出是子集，不重复相加
+          {" · "}cached input and reasoning output are subsets, not added twice
         </small>
       ) : null}
     </div>
@@ -502,17 +504,17 @@ function tokenUsageContext(usage: TokenUsage) {
       ? `${formatPercent(usage.usedPercent ?? null)} × ${formatTokens(
           usage.capacityTokens,
         )} · ${tokenScopeLabel(usage)}`
-      : "未配置容量校准，只显示配额百分比";
+      : "No capacity calibration configured; showing quota percentage only";
   }
   const period = `${tokenPeriodLabel(usage)}${
     usage.periodStartAt && usage.periodId !== "today"
-      ? `（${formatShortDate(usage.periodStartAt)} 起）`
+      ? ` (since ${formatShortDate(usage.periodStartAt)})`
       : ""
   }`;
   const activity =
     usage.basis === "api_usage"
-      ? `${formatNumber(usage.requestCount ?? 0)} 次请求`
-      : `${formatNumber(usage.sessionCount ?? 0)} 个会话`;
+      ? `${formatNumber(usage.requestCount ?? 0)} requests`
+      : `${formatNumber(usage.sessionCount ?? 0)} sessions`;
   return `${period} · ${tokenScopeLabel(usage)} · ${activity}`;
 }
 
@@ -546,10 +548,10 @@ function ProviderTokenPanel({
     (left, right) => tokenUsageOrder(left) - tokenUsageOrder(right),
   );
   return (
-    <section className="token-panel" aria-label="Token 用量分层">
+    <section className="token-panel" aria-label="Token usage layers">
       <div className="token-panel__heading">
-        <span className="eyebrow">Token 用量 · 分层口径</span>
-        <small>实测日志与配额换算互不相加</small>
+        <span className="eyebrow">Token usage · layered views</span>
+        <small>Observed logs and quota conversions are never summed</small>
       </div>
       <div className="token-methods">
         {orderedEstimates.map((usage, index) => (
@@ -561,7 +563,7 @@ function ProviderTokenPanel({
               <div>
                 <span>
                   {tokenPeriodLabel(usage)} · {tokenBasisLabel(usage.basis)}
-                  {matchesPreferred(usage) ? " · 快捷视图采用" : ""}
+                  {matchesPreferred(usage) ? " · shown in quick view" : ""}
                 </span>
                 {usage.basis === "quota_percentage" &&
                 !usage.capacityTokens ? (
@@ -592,13 +594,15 @@ function ProviderTokenPanel({
                             model.usedPercent ?? null,
                           )} × ${formatTokens(
                             model.capacityTokens ?? null,
-                          )} 周容量`
+                          )} weekly capacity`
                         : usage.basis === "api_usage"
                           ? `${formatNumber(
                               model.requestCount ?? 0,
-                            )} 次官方请求`
-                          : "token_count 增量"}
-                      {model.countedInTotal ? "" : " · 独立额度，不计入总数"}
+                            )} official API requests`
+                          : "token_count deltas"}
+                      {model.countedInTotal
+                        ? ""
+                        : " · separate quota, not counted in total"}
                     </small>
                     <TokenComposition
                       compact
@@ -665,15 +669,17 @@ function recordedCoverage(
   entries: TokenOverviewEntry[],
   providers: Provider[],
 ) {
-  if (!entries.length) return "暂无该周期的真实 Token 记录";
+  if (!entries.length) return "No observed token records for this period yet";
   const covered = entries
     .map(({ provider, usage }) => `${provider.name} · ${tokenScopeLabel(usage)}`)
-    .join("；");
+    .join("; ");
   const coveredIds = new Set(entries.map(({ provider }) => provider.id));
   const missing = providers
     .filter((provider) => !coveredIds.has(provider.id))
     .map((provider) => provider.name);
-  return `${covered}${missing.length ? `；${missing.join("、")} 暂无实测` : ""}`;
+  return `${covered}${
+    missing.length ? `; no observed data for ${missing.join(", ")}` : ""
+  }`;
 }
 
 function overviewComposition(entries: TokenOverviewEntry[]) {
@@ -723,7 +729,7 @@ function TokenOverview({ providers }: { providers: Provider[] }) {
   const layers = [
     {
       id: "today",
-      label: "今日已记录 Token",
+      label: "Tokens recorded today",
       total: tokenEntriesTotal(todayEntries),
       entries: todayEntries,
       composition: todayComposition,
@@ -732,7 +738,7 @@ function TokenOverview({ providers }: { providers: Provider[] }) {
     },
     {
       id: "weekly",
-      label: "订阅周期已记录",
+      label: "Recorded this subscription cycle",
       total: tokenEntriesTotal(weeklyEntries),
       entries: weeklyEntries,
       composition: weeklyComposition,
@@ -741,27 +747,27 @@ function TokenOverview({ providers }: { providers: Provider[] }) {
     },
     {
       id: "quota",
-      label: "配额换算",
+      label: "Quota conversion",
       total: tokenEntriesTotal(quotaEntries),
       entries: quotaEntries,
       composition: null,
       caption: quotaEntries.length
         ? `${quotaEntries
             .map(({ provider }) => provider.name)
-            .join("、")} · 百分比 × 校准容量`
-        : "尚未配置可换算的订阅容量",
+            .join(", ")} · percentage × calibrated capacity`
+        : "No subscription capacity configured for conversion yet",
       estimated: true,
     },
   ];
 
   return (
-    <section className="token-overview" aria-label="Token 分层总览">
+    <section className="token-overview" aria-label="Token usage overview">
       <header className="token-overview__heading">
         <div>
-          <span className="eyebrow">Token 用量</span>
-          <strong>实际记录与额度估算分开看</strong>
+          <span className="eyebrow">Token usage</span>
+          <strong>Observed usage and quota estimates, kept separate</strong>
         </div>
-        <small>输入 + 输出 = 总量；缓存与推理不重复计入</small>
+        <small>Input + output = total; cache and reasoning are not double-counted</small>
       </header>
       <div className="token-overview__layers">
         {layers.map((layer) => (
@@ -777,7 +783,7 @@ function TokenOverview({ providers }: { providers: Provider[] }) {
             >
               {layer.entries.length
                 ? `${layer.estimated ? "≈" : ""}${formatTokens(layer.total)}`
-                : "未提供"}
+                : "Not available"}
             </strong>
             {layer.composition ? (
               <TokenComposition
@@ -791,7 +797,9 @@ function TokenOverview({ providers }: { providers: Provider[] }) {
         ))}
       </div>
       <p className="token-overview__note">
-        三层口径互不相加：今日与订阅周期来自日志或官方实际记录；配额换算只是容量估计，不代表真实 Token。
+        The three layers are never summed: today and the subscription cycle come
+        from logs or official records; quota conversion is only a capacity
+        estimate, not observed tokens.
       </p>
     </section>
   );
@@ -843,7 +851,7 @@ const ProviderCard = memo(function ProviderCard({
           <ProviderLogo provider={provider} />
           <div>
             <h2>{provider.name}</h2>
-            <p>{provider.plan || "订阅状态未知"}</p>
+            <p>{provider.plan || "Plan unknown"}</p>
           </div>
         </div>
         <span
@@ -851,7 +859,7 @@ const ProviderCard = memo(function ProviderCard({
         >
           <i />
           {stale
-            ? `过期 · ${formatAge(provider.updatedAt)}`
+            ? `Stale · ${formatAge(provider.updatedAt)}`
             : isReady && risk !== "normal" && peakWindow
               ? `${peakWindow.label} ${formatPercent(peakWindow.usedPercent)}`
               : providerStateLabel(provider)}
@@ -867,27 +875,31 @@ const ProviderCard = memo(function ProviderCard({
         >
           <div className="usage-ring__inside">
             <span>{formatPercent(primary?.usedPercent ?? null)}</span>
-            <small>{hasQuota ? `${primary?.label || "当前"}已使用` : "无配额窗口"}</small>
+            <small>
+              {hasQuota
+                ? `${primary?.label || "current"} used`
+                : "No quota window"}
+            </small>
           </div>
         </div>
         <div className="provider-card__signal">
-          <span className="eyebrow">下一次关键重置</span>
+          <span className="eyebrow">Next key reset</span>
           <strong>
             {keyReset.resetsAt ? (
               <>
-                {keyReset.estimated ? "预计 " : ""}
+                {keyReset.estimated ? "est. " : ""}
                 {formatCountdown(keyReset.resetsAt)}
               </>
             ) : (
-              "没有重置窗口"
+              "No reset window"
             )}
           </strong>
           <p>
             {fiveHour
-              ? `5 小时窗口 · ${keyReset.estimated ? "约 " : ""}${formatResetClock(keyReset.resetsAt)}`
+              ? `5-hour window · ${keyReset.estimated ? "~" : ""}${formatResetClock(keyReset.resetsAt)}`
               : primary
-                ? `${primary.label}窗口 · ${keyReset.estimated ? "约 " : ""}${formatResetClock(keyReset.resetsAt)}`
-                : "当前接口提供余额或模型用量，不提供配额窗口"}
+                ? `${primary.label} window · ${keyReset.estimated ? "~" : ""}${formatResetClock(keyReset.resetsAt)}`
+                : "This source reports balance or model usage, not quota windows"}
           </p>
           {provider.balance ? (
             <div className="balance-chip">
@@ -919,7 +931,10 @@ const ProviderCard = memo(function ProviderCard({
           ) : (
             <div className="metric-only-state">
               <span aria-hidden="true">↗</span>
-              <p>这是余额或模型统计接口，没有可换算的订阅配额窗口。</p>
+              <p>
+                This source reports balance or per-model stats; it has no
+                subscription quota window to convert.
+              </p>
             </div>
           )}
         </>
@@ -942,9 +957,12 @@ const ProviderCard = memo(function ProviderCard({
 
       <footer className="provider-card__footer">
         <div>
-          <span className="eyebrow">过去 24 小时</span>
+          <span className="eyebrow">Past 24 hours</span>
           {bars.length > 1 ? (
-            <div className="micro-bars" aria-label="过去 24 小时真实用量趋势">
+            <div
+              className="micro-bars"
+              aria-label="Observed usage trend over the past 24 hours"
+            >
               {bars.map((value, index) => (
                 <i
                   key={`${index}-${value}`}
@@ -953,7 +971,7 @@ const ProviderCard = memo(function ProviderCard({
               ))}
             </div>
           ) : (
-            <p className="history-pending">历史积累中</p>
+            <p className="history-pending">Collecting history</p>
           )}
         </div>
         <div className="source-meta">
@@ -1018,7 +1036,7 @@ function DisplayProviderTile({
                 <div
                   className="display-meter"
                   role="progressbar"
-                  aria-label={`${provider.name} ${window.label}已用`}
+                  aria-label={`${provider.name} ${window.label} used`}
                   aria-valuemin={0}
                   aria-valuemax={100}
                   aria-valuenow={window.usedPercent ?? undefined}
@@ -1026,7 +1044,7 @@ function DisplayProviderTile({
                   <i style={{ width: `${clamp(window.usedPercent ?? 0)}%` }} />
                 </div>
                 <small>
-                  {reset.estimated ? "预计 " : ""}
+                  {reset.estimated ? "est. " : ""}
                   {formatCountdown(reset.resetsAt)}
                 </small>
               </div>
@@ -1043,7 +1061,9 @@ function DisplayProviderTile({
       ) : (
         <div className="display-no-metric">
           <strong>{providerStateLabel(provider)}</strong>
-          <span>{provider.message || "当前接口没有返回可显示指标"}</span>
+          <span>
+            {provider.message || "No displayable metrics from this source"}
+          </span>
         </div>
       )}
 
@@ -1064,7 +1084,7 @@ function DisplayProviderTile({
             ))}
           </div>
         ) : (
-          <span className="display-models__empty">暂无逐模型统计</span>
+          <span className="display-models__empty">No per-model stats yet</span>
         )}
         <span className="display-provider__freshness">
           {formatAge(provider.updatedAt)}
@@ -1115,7 +1135,7 @@ function DedicatedDisplay({
   useEffect(() => {
     const updateClock = () =>
       setClock(
-        new Intl.DateTimeFormat("zh-CN", {
+        new Intl.DateTimeFormat(undefined, {
           hour: "2-digit",
           minute: "2-digit",
         }).format(new Date()),
@@ -1221,7 +1241,7 @@ function DedicatedDisplay({
 
   const staleCount = providers.filter(isProviderStale).length;
   return (
-    <section className="dedicated-display" aria-label="外接常亮小屏">
+    <section className="dedicated-display" aria-label="External always-on display">
       <header className="display-header">
         <div className="display-brand">
           <span className="brand__signal" aria-hidden="true">
@@ -1233,36 +1253,36 @@ function DedicatedDisplay({
             <strong>AI USAGE</strong>
             <small>
               {error
-                ? "采集器离线"
+                ? "Collector offline"
                 : staleCount
-                  ? `${providers.length - staleCount} 实时 · ${staleCount} 陈旧`
-                  : `${providers.length} 个平台实时`}
+                  ? `${providers.length - staleCount} live · ${staleCount} stale`
+                  : `${providers.length} providers live`}
             </small>
           </span>
         </div>
         <div className="display-clock">
           <strong>{clock}</strong>
           <small>
-            <RefreshCountdown key={refreshSignal} seconds={REFRESH_SECONDS} />{" "}
-            后刷新
+            refresh in{" "}
+            <RefreshCountdown key={refreshSignal} seconds={REFRESH_SECONDS} />
           </small>
         </div>
-        <nav className="display-actions" aria-label="小屏控制">
+        <nav className="display-actions" aria-label="Display controls">
           <button
             type="button"
             className={wakeLockActive ? "is-active" : ""}
             onClick={() => void toggleWakeLock()}
-            title="防止屏幕自动休眠"
+            title="Keep the screen awake"
           >
-            常亮
+            Awake
           </button>
           <button type="button" onClick={() => void toggleFullscreen()}>
-            {fullscreen ? "退出全屏" : "全屏"}
+            {fullscreen ? "Exit full screen" : "Full screen"}
           </button>
           <button type="button" onClick={onRefresh}>
-            刷新
+            Refresh
           </button>
-          <Link href="/">仪表</Link>
+          <Link href="/">Dashboard</Link>
         </nav>
       </header>
 
@@ -1286,8 +1306,15 @@ function DedicatedDisplay({
           ))
         ) : (
           <div className="display-empty">
-            <strong>{error ? "采集器暂时不可用" : "等待第一份用量快照"}</strong>
-            <span>{error || "数据到达后会自动显示，无需刷新页面。"}</span>
+            <strong>
+              {error
+                ? "Collector temporarily unavailable"
+                : "Waiting for the first usage snapshot"}
+            </strong>
+            <span>
+              {error ||
+                "Data appears automatically when it arrives — no page refresh needed."}
+            </span>
           </div>
         )}
       </div>
@@ -1295,24 +1322,24 @@ function DedicatedDisplay({
       <footer className="display-footer">
         <span>
           {data?.generatedAt
-            ? `快照 ${formatAge(data.generatedAt)}`
-            : "正在连接本机采集器"}
+            ? `Snapshot ${formatAge(data.generatedAt)}`
+            : "Connecting to local collector"}
         </span>
         {pageCount > 1 ? (
-          <div aria-label="平台分页">
+          <div aria-label="Provider pages">
             {Array.from({ length: pageCount }, (_, index) => (
               <button
                 key={index}
                 type="button"
                 className={activePage === index ? "is-active" : ""}
                 onClick={() => setPage(index)}
-                aria-label={`显示第 ${index + 1} 页`}
+                aria-label={`Show page ${index + 1}`}
                 aria-pressed={activePage === index}
               />
             ))}
           </div>
         ) : null}
-        <span>480×320 · 800×480 专用视图</span>
+        <span>Optimized for 480×320 · 800×480</span>
       </footer>
     </section>
   );
@@ -1336,7 +1363,7 @@ function LoadingCard({
           <ProviderLogo provider={{ id, name, shortName, accent }} />
           <div>
             <h2>{name}</h2>
-            <p>正在读取真实配额</p>
+            <p>Reading live quota</p>
           </div>
         </div>
       </header>
@@ -1408,7 +1435,7 @@ export function UsageDashboard({
         return;
       }
       if (!usageResponse.ok || !historyResponse.ok) {
-        throw new Error("用量服务返回异常");
+        throw new Error("Usage service returned an error");
       }
       const [usagePayload, historyPayload] = await Promise.all([
         usageResponse.json() as Promise<UsagePayload>,
@@ -1427,7 +1454,7 @@ export function UsageDashboard({
       setRefreshSignal((value) => value + 1);
     } catch {
       if (sequence !== loadSequenceRef.current) return;
-      setError("暂时无法连接用量采集服务，请稍后重试。");
+      setError("Cannot reach the usage collector right now. Try again shortly.");
     } finally {
       if (sequence === loadSequenceRef.current) setRefreshing(false);
     }
@@ -1445,14 +1472,16 @@ export function UsageDashboard({
         body: JSON.stringify({ code: viewCode }),
       });
       if (!response.ok) {
-        throw new Error("访问码不正确");
+        throw new Error("Incorrect view code");
       }
       setViewCode("");
       setLocked(false);
       await load();
     } catch (unlockFailure) {
       setUnlockError(
-        unlockFailure instanceof Error ? unlockFailure.message : "暂时无法解锁",
+        unlockFailure instanceof Error
+          ? unlockFailure.message
+          : "Unable to unlock right now",
       );
     } finally {
       setUnlocking(false);
@@ -1589,7 +1618,7 @@ export function UsageDashboard({
               )}`
             : providerStateLabel(provider);
         return `${provider.name}: ${usage}${
-          reset.resetsAt ? ` · ${formatCountdown(reset.resetsAt)}重置` : ""
+          reset.resetsAt ? ` · resets ${formatCountdown(reset.resetsAt)}` : ""
         }`;
       }),
     ];
@@ -1606,7 +1635,7 @@ export function UsageDashboard({
   return (
     <main className={displayMode ? "dashboard dashboard--display" : "dashboard"}>
       <a className="skip-link" href="#dashboard-content">
-        跳到主要内容
+        Skip to main content
       </a>
       <div className="ambient ambient--one" />
       <div className="ambient ambient--two" />
@@ -1621,20 +1650,20 @@ export function UsageDashboard({
             </span>
             <span className="eyebrow">LOCAL-FIRST · PRIVATE DISPLAY</span>
             <h1 id="access-title">AI Usage Dashboard</h1>
-            <p>输入查看码后，这台设备会保持登录 30 天。</p>
+            <p>Enter the view code once; this device stays signed in for 30 days.</p>
             <form onSubmit={unlock}>
-              <label htmlFor="view-code">查看码</label>
+              <label htmlFor="view-code">View code</label>
               <input
                 id="view-code"
                 type="password"
                 autoComplete="current-password"
                 value={viewCode}
                 onChange={(event) => setViewCode(event.target.value)}
-                placeholder="输入本机生成的查看码"
+                placeholder="Enter the view code generated on your machine"
                 required
               />
               <button type="submit" disabled={unlocking}>
-                {unlocking ? "验证中…" : "打开仪表盘"}
+                {unlocking ? "Verifying…" : "Open dashboard"}
               </button>
             </form>
             {unlockError ? (
@@ -1642,7 +1671,10 @@ export function UsageDashboard({
                 {unlockError}
               </div>
             ) : null}
-            <small>页面只接收脱敏配额快照，不保存任何 AI 平台凭证。</small>
+            <small>
+              This page only receives sanitized quota snapshots. No AI provider
+              credentials are stored.
+            </small>
           </section>
         ) : null}
 
@@ -1684,25 +1716,25 @@ export function UsageDashboard({
             <Link
               className="utility-button display-launch"
               href="/display"
-              title="打开适合外接常亮屏的独立视图"
+              title="Open the standalone view for an external always-on screen"
             >
               <span aria-hidden="true">▣</span>
-              外接屏
+              Display
             </Link>
             <button
               className="utility-button"
               type="button"
               onClick={() => void copySummary()}
               disabled={!data}
-              title="复制当前脱敏摘要"
+              title="Copy a sanitized usage summary"
               aria-live="polite"
             >
               <span aria-hidden="true">⌘</span>
               {copyState === "copied"
-                ? "已复制"
+                ? "Copied"
                 : copyState === "error"
-                  ? "复制失败"
-                  : "摘要"}
+                  ? "Copy failed"
+                  : "Summary"}
             </button>
             <button
               className={`utility-button ${controlsOpen ? "is-active" : ""}`}
@@ -1712,7 +1744,7 @@ export function UsageDashboard({
               aria-controls="dashboard-controls"
             >
               <span aria-hidden="true">☷</span>
-              管理
+              Manage
             </button>
             <button
               className="refresh-button"
@@ -1722,7 +1754,7 @@ export function UsageDashboard({
             >
               <span aria-hidden="true">{refreshing ? "···" : "↻"}</span>
               {refreshing ? (
-                "刷新中"
+                "Refreshing"
               ) : (
                 <RefreshCountdown
                   key={refreshSignal}
@@ -1737,10 +1769,10 @@ export function UsageDashboard({
           <section
             className="control-dock"
             id="dashboard-controls"
-            aria-label="Dashboard 显示设置"
+            aria-label="Dashboard display settings"
           >
             <div className="control-dock__group">
-              <span className="eyebrow">显示平台</span>
+              <span className="eyebrow">Providers</span>
               <div className="provider-toggles">
                 {(data?.providers || []).map((provider) => {
                   const visible = !hiddenProviders.includes(provider.id);
@@ -1760,7 +1792,7 @@ export function UsageDashboard({
               </div>
             </div>
             <div className="control-dock__group control-dock__threshold">
-              <span className="eyebrow">关注阈值</span>
+              <span className="eyebrow">Warning threshold</span>
               <div>
                 {WARNING_LEVELS.map((value) => (
                   <button
@@ -1775,54 +1807,58 @@ export function UsageDashboard({
               </div>
               <small>
                 {riskProviders.length
-                  ? `${riskProviders.length} 个平台达到关注阈值`
-                  : "当前没有平台达到关注阈值"}
+                  ? `${riskProviders.length} provider${
+                      riskProviders.length > 1 ? "s" : ""
+                    } at the warning threshold`
+                  : "No providers at the warning threshold"}
               </small>
             </div>
             <div className="control-dock__shortcuts">
-              <span className="eyebrow">快捷键</span>
+              <span className="eyebrow">Shortcuts</span>
               <p>
-                <kbd>R</kbd> 刷新 <kbd>D</kbd> 打开外接屏{" "}
-                <kbd>,</kbd> 打开管理
+                <kbd>R</kbd> refresh <kbd>D</kbd> display view{" "}
+                <kbd>,</kbd> manage
               </p>
-              <small>显示偏好只保存在当前浏览器。</small>
+              <small>Display preferences are stored only in this browser.</small>
             </div>
           </section>
         ) : null}
 
-        <section className="overview-strip" aria-label="采集状态">
+        <section className="overview-strip" aria-label="Collector status">
           <div>
             <span className="overview-strip__dot" />
             <p>
               <b>
                 {data?.collector.state === "online"
                   ? staleProviders.length
-                    ? `${visibleProviders.length - staleProviders.length} 实时 · ${staleProviders.length} 陈旧`
+                    ? `${visibleProviders.length - staleProviders.length} live · ${staleProviders.length} stale`
                     : riskProviders.length
-                      ? `${riskProviders.length} 个平台需关注`
-                      : "实时采集中"
-                  : "等待采集器"}
+                      ? `${riskProviders.length} provider${
+                          riskProviders.length > 1 ? "s" : ""
+                        } need attention`
+                      : "Collecting live"
+                  : "Waiting for collector"}
               </b>
               <span>
                 {visibleProviders.map((provider) => provider.name).join(" · ") ||
-                  "等待数据"}
+                  "Waiting for data"}
               </span>
             </p>
           </div>
           <div className="overview-strip__reset">
-            <span className="eyebrow">最近一次数据</span>
+            <span className="eyebrow">Last data</span>
             <strong>{formatUpdated(data?.generatedAt || null)}</strong>
           </div>
           <div className="overview-strip__reset">
-            <span className="eyebrow">下一个重置</span>
+            <span className="eyebrow">Next reset</span>
             <strong>
-              {nextReset?.estimated ? "预计 " : ""}
-              {nextReset ? formatCountdown(nextReset.resetsAt) : "等待数据"}
+              {nextReset?.estimated ? "est. " : ""}
+              {nextReset ? formatCountdown(nextReset.resetsAt) : "waiting for data"}
             </strong>
           </div>
           <div className="privacy-lock">
             <span aria-hidden="true">●</span>
-            凭证不进入云端
+            Credentials never leave this machine
           </div>
         </section>
 
@@ -1832,16 +1868,16 @@ export function UsageDashboard({
           <div className="connection-alert" role="alert">
             <span aria-hidden="true">!</span>
             <div>
-              <strong>采集器未连接</strong>
+              <strong>Collector not connected</strong>
               <p>{error}</p>
             </div>
             <button type="button" onClick={() => void load(true)}>
-              重试
+              Retry
             </button>
           </div>
         ) : null}
 
-        <section className="provider-grid" aria-label="AI 平台用量">
+        <section className="provider-grid" aria-label="AI provider usage">
           {visibleProviders.length ? (
             visibleProviders.map((provider) => (
               <ProviderCard
@@ -1854,19 +1890,22 @@ export function UsageDashboard({
           ) : data?.providers.length ? (
             <div className="provider-empty-state">
               <span aria-hidden="true">◌</span>
-              <strong>所有平台都已隐藏</strong>
-              <p>在“管理”里重新打开至少一个平台。</p>
+              <strong>All providers are hidden</strong>
+              <p>Re-enable at least one provider under Manage.</p>
               <button type="button" onClick={() => setControlsOpen(true)}>
-                打开管理
+                Open Manage
               </button>
             </div>
           ) : error ? (
             <div className="provider-empty-state provider-empty-state--error">
               <span aria-hidden="true">!</span>
-              <strong>暂时无法读取平台用量</strong>
-              <p>采集器恢复后页面会自动重试，也可以立即手动刷新。</p>
+              <strong>Cannot read provider usage right now</strong>
+              <p>
+                The page retries automatically once the collector recovers, or
+                you can refresh manually.
+              </p>
               <button type="button" onClick={() => void load(true)}>
-                立即重试
+                Retry now
               </button>
             </div>
           ) : (
@@ -1889,17 +1928,18 @@ export function UsageDashboard({
 
         {historyTruncated ? (
           <p className="history-truncated" role="note">
-            历史数据已截断，仅显示最近部分
+            History truncated; showing only the most recent data
           </p>
         ) : null}
 
         <footer className="dashboard-footer">
           <p>
             <span />
-            三层口径互不相加 · 缺失实测如实标注
+            Usage layers are never summed · missing observations labeled as such
           </p>
           <p>
-            Collector {data?.collector.version || DASHBOARD_VERSION} · 自动刷新 60 秒
+            Collector {data?.collector.version || DASHBOARD_VERSION} ·
+            auto-refresh every 60s
           </p>
         </footer>
         </>

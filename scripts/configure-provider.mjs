@@ -44,17 +44,17 @@ const providerConfigs = {
     fields: [
       {
         key: "GITHUB_COPILOT_USERNAME",
-        label: "GitHub 用户名",
+        label: "GitHub username",
         secret: false,
       },
       {
         key: "GITHUB_COPILOT_TOKEN",
-        label: "Fine-grained Token（Plan: read）",
+        label: "Fine-grained token (Plan: read)",
         secret: true,
       },
       {
         key: "GITHUB_COPILOT_MONTHLY_CREDIT_LIMIT",
-        label: "每月 AI Credits 上限（可留空）",
+        label: "Monthly AI credits limit (optional)",
         secret: false,
         optional: true,
       },
@@ -63,7 +63,7 @@ const providerConfigs = {
 };
 
 if (!stdin.isTTY || typeof stdin.setRawMode !== "function") {
-  console.error("请在交互式终端中运行此配置命令。");
+  console.error("Run this configuration command in an interactive terminal.");
   process.exit(1);
 }
 
@@ -73,15 +73,15 @@ const config = providerConfigs[providerId];
 
 if (!config) {
   console.error(
-    "请选择平台：openai-api、openrouter、deepseek 或 github-copilot。",
+    "Choose a provider: openai-api, openrouter, deepseek, or github-copilot.",
   );
-  console.error("示例：npm run configure:provider -- openrouter");
+  console.error("Example: npm run configure:provider -- openrouter");
   process.exit(1);
 }
 
 function readInput(label, { secret = false, optional = false } = {}) {
   stdout.write(
-    `${label}${optional ? "（可留空）" : ""}${secret ? "（输入内容隐藏）" : ""}：`,
+    `${label}${optional ? " (optional)" : ""}${secret ? " (input hidden)" : ""}: `,
   );
   stdin.setRawMode(true);
   stdin.resume();
@@ -146,11 +146,13 @@ for (const rawLine of existing.split(/\r?\n/)) {
   values.set(line.slice(0, separator).trim(), line.slice(separator + 1).trim());
 }
 
-console.log(`正在配置 ${config.name}。凭证只会写入 ~/.usage-hub/env。`);
+console.log(
+  `Configuring ${config.name}. Credentials are written only to ~/.usage-hub/env.`,
+);
 for (const field of config.fields) {
   const value = await readInput(field.label, field);
   if (!value && !field.optional) {
-    console.error(`${field.label} 不能为空，未修改配置。`);
+    console.error(`${field.label} cannot be empty; configuration unchanged.`);
     process.exit(1);
   }
   if (value) values.set(field.key, value);
@@ -166,4 +168,6 @@ await writeFile(envPath, serialized, {
 });
 await chmod(envPath, 0o600);
 
-console.log(`${config.name} 已配置。重启本地采集器后会自动加入 Dashboard。`);
+console.log(
+  `${config.name} configured. Restart the local collector and it will appear on the dashboard automatically.`,
+);

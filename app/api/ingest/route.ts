@@ -59,7 +59,7 @@ export async function POST(request: Request) {
     };
     const isTransientRateLimit =
       provider.state === "error" &&
-      /(?:HTTP\s*)?429|rate.?limit|限流/i.test(provider.message || "");
+      /(?:HTTP\s*)?429|rate.?limit/i.test(provider.message || "");
     if (isTransientRateLimit) {
       const [existing] = await db
         .select()
@@ -75,10 +75,10 @@ export async function POST(request: Request) {
           if (previous?.state === "ready") {
             storedProvider = {
               ...previous,
-              source: `${previous.source} · 上次成功快照`,
+              source: `${previous.source} · last good snapshot`,
               message:
                 provider.message ||
-                "提供方用量接口暂时限流，显示上次成功数据。",
+                "Provider usage API is temporarily rate limited; showing the last good snapshot.",
             };
           }
         } catch {

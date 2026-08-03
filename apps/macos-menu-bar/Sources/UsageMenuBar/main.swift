@@ -155,9 +155,9 @@ private struct WindowPace {
 
     var summary: String {
         if let exhaustionDate {
-            return "按当前速度 \(futureText(exhaustionDate)) 用尽"
+            return "on pace to run out \(futureText(exhaustionDate))"
         }
-        return "预计周期末 \(Int(projectedPercent.rounded()))%"
+        return "on pace for \(Int(projectedPercent.rounded()))% at cycle end"
     }
 }
 
@@ -196,9 +196,9 @@ private final class UsageStore: ObservableObject {
             .map { provider in
                 let value: String
                 if provider.state != "ready" {
-                    value = "异常"
+                    value = "ERR"
                 } else if let percent = provider.primaryWindow?.usedPercent {
-                    let staleSuffix = provider.isStale ? " 旧" : ""
+                    let staleSuffix = provider.isStale ? "*" : ""
                     value = "\(Int(percent.rounded()))%\(staleSuffix)"
                 } else {
                     value = "—"
@@ -262,15 +262,15 @@ private final class UsageStore: ObservableObject {
             providers = payload.providers
             lastUpdated = parseISO8601(payload.generatedAt) ?? Date()
             errorMessage = payload.skippedProviderCount > 0
-                ? "已忽略 \(payload.skippedProviderCount) 个格式不兼容的平台"
+                ? "Skipped \(payload.skippedProviderCount) provider(s) with incompatible data"
                 : nil
             evaluateQuotaNotifications()
         } catch {
             NSLog("Usage menu refresh failed: %@", String(describing: error))
             if error is DecodingError {
-                errorMessage = "采集器数据格式不兼容，正在显示上次数据"
+                errorMessage = "Collector data format incompatible; showing last data"
             } else {
-                errorMessage = "本机采集器已断开，正在显示上次数据"
+                errorMessage = "Local collector disconnected; showing last data"
             }
         }
     }
@@ -294,13 +294,13 @@ private final class UsageStore: ObservableObject {
             }
             refreshLaunchAtLoginStatus()
             if enabled && SMAppService.mainApp.status == .requiresApproval {
-                launchAtLoginMessage = "请在“系统设置 › 通用 › 登录项”中允许"
+                launchAtLoginMessage = "Allow it in System Settings › General › Login Items"
             } else {
                 launchAtLoginMessage = nil
             }
         } catch {
             refreshLaunchAtLoginStatus()
-            launchAtLoginMessage = "无法修改登录项，请从“应用程序”目录运行"
+            launchAtLoginMessage = "Cannot change Login Items; run the app from Applications"
         }
     }
 
@@ -318,14 +318,14 @@ private final class UsageStore: ObservableObject {
                 .requestAuthorization(options: [.alert, .sound])
             notificationsEnabled = granted
             defaults.set(granted, forKey: PreferenceKey.notificationsEnabled)
-            notificationMessage = granted ? nil : "请在系统设置中允许通知"
+            notificationMessage = granted ? nil : "Allow notifications in System Settings"
             if granted {
                 evaluateQuotaNotifications()
             }
         } catch {
             notificationsEnabled = false
             defaults.set(false, forKey: PreferenceKey.notificationsEnabled)
-            notificationMessage = "无法启用额度提醒"
+            notificationMessage = "Could not enable quota alerts"
         }
     }
 
@@ -354,7 +354,7 @@ private final class UsageStore: ObservableObject {
             notificationMessage = nil
         case .denied:
             notificationsEnabled = false
-            notificationMessage = "系统通知权限已关闭"
+            notificationMessage = "Notifications are disabled in System Settings"
             defaults.set(false, forKey: PreferenceKey.notificationsEnabled)
         case .notDetermined:
             notificationsEnabled = false
@@ -417,10 +417,10 @@ private final class UsageStore: ObservableObject {
         key: String
     ) {
         let content = UNMutableNotificationContent()
-        content.title = "\(provider.name) 已用 \(Int(percent.rounded()))%"
-        var details = "\(window.label)额度达到 \(notificationThreshold)% 提醒线"
+        content.title = "\(provider.name) at \(Int(percent.rounded()))% used"
+        var details = "\(window.label) quota hit the \(notificationThreshold)% alert threshold"
         if let pace = paceForWindow(window), pace.level > 0 {
-            details += "，\(pace.summary)"
+            details += "; \(pace.summary)"
         }
         content.body = details
         content.sound = .default
@@ -440,7 +440,7 @@ private final class UsageStore: ObservableObject {
                 self.notificationMessage = nil
             } catch {
                 self.pendingNotificationKeys.remove(key)
-                self.notificationMessage = "额度提醒发送失败，将在下次刷新重试"
+                self.notificationMessage = "Quota alert failed to send; retrying on next refresh"
                 NSLog(
                     "Usage menu notification failed: %@",
                     String(describing: error)
@@ -530,15 +530,15 @@ private struct MenuBarPanel: View {
             }
             .buttonStyle(.borderless)
             .disabled(store.isRefreshing)
-            .help("刷新")
+            .help("Refresh")
         }
         .padding(14)
     }
 
     private var statusText: String {
         if let errorMessage = store.errorMessage { return errorMessage }
-        guard let lastUpdated = store.lastUpdated else { return "正在读取本机采集器…" }
-        return "采集器 \(freshnessText(lastUpdated))"
+        guard let lastUpdated = store.lastUpdated else { return "Contacting local collector…" }
+        return "Collector \(freshnessText(lastUpdated))"
     }
 
     private var emptyState: some View {
@@ -546,9 +546,9 @@ private struct MenuBarPanel: View {
             Image(systemName: "antenna.radiowaves.left.and.right.slash")
                 .font(.system(size: 24))
                 .foregroundStyle(.secondary)
-            Text("还没有可显示的平台")
+            Text("No providers to show yet")
                 .font(.system(size: 12, weight: .medium))
-            Text(store.errorMessage ?? "请先运行 npm run local")
+            Text(store.errorMessage ?? "Run npm run local first")
                 .font(.system(size: 10))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -561,7 +561,7 @@ private struct MenuBarPanel: View {
         VStack(spacing: 8) {
             HStack {
                 Toggle(
-                    "额度提醒",
+                    "Quota alerts",
                     isOn: Binding(
                         get: { store.notificationsEnabled },
                         set: { enabled in
@@ -575,7 +575,7 @@ private struct MenuBarPanel: View {
                 Spacer()
 
                 Picker(
-                    "提醒线",
+                    "Threshold",
                     selection: Binding(
                         get: { store.notificationThreshold },
                         set: { store.setNotificationThreshold($0) }
@@ -593,7 +593,7 @@ private struct MenuBarPanel: View {
 
             HStack {
                 Toggle(
-                    "登录时启动",
+                    "Launch at login",
                     isOn: Binding(
                         get: { store.launchAtLoginEnabled },
                         set: { store.setLaunchAtLogin($0) }
@@ -604,12 +604,12 @@ private struct MenuBarPanel: View {
 
                 Spacer()
 
-                Button("打开 Dashboard") {
+                Button("Open Dashboard") {
                     store.openDashboard()
                 }
                 .buttonStyle(.borderless)
 
-                Button("退出") {
+                Button("Quit") {
                     NSApplication.shared.terminate(nil)
                 }
                 .buttonStyle(.borderless)
@@ -687,9 +687,11 @@ private struct AppMark: View {
         .shadow(color: Color.black.opacity(0.18), radius: 4, y: 2)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(
-            needsAttention ? "AI 用量，有平台数据需要关注" : "AI 用量，数据正常"
+            needsAttention
+                ? "AI usage; some providers need attention"
+                : "AI usage; data is healthy"
         )
-        .help(needsAttention ? "有平台数据需要关注" : "数据正常")
+        .help(needsAttention ? "Some providers need attention" : "Data is healthy")
     }
 
     private func meterTrack(
@@ -738,7 +740,7 @@ private struct ProviderSummaryStrip: View {
                 )
                 .accessibilityElement(children: .combine)
                 .accessibilityLabel(
-                    "\(provider.name)，\(formatPercent(provider.primaryWindow?.usedPercent))"
+                    "\(provider.name), \(formatPercent(provider.primaryWindow?.usedPercent))"
                 )
             }
         }
@@ -830,7 +832,7 @@ private struct ProviderRow: View {
                        usage.periodId == "today",
                        let total = usage.totalTokens {
                         HStack {
-                            Text("今日实际 TOKEN")
+                            Text("OBSERVED TOKENS TODAY")
                             Spacer()
                             Text(formatTokens(total))
                                 .font(.system(size: 10, weight: .semibold, design: .rounded))
@@ -840,7 +842,7 @@ private struct ProviderRow: View {
 
                         if let input = usage.inputTokens,
                            let output = usage.outputTokens {
-                            Text("输入 \(formatTokens(input)) + 输出 \(formatTokens(output))")
+                            Text("Input \(formatTokens(input)) + output \(formatTokens(output))")
                                 .font(.system(size: 8))
                                 .foregroundStyle(.secondary)
                         }
@@ -848,8 +850,8 @@ private struct ProviderRow: View {
 
                     Text(
                         preferredTokenEstimate?.periodId == "today"
-                            ? "今日模型 TOKEN"
-                            : "模型 TOKEN"
+                            ? "MODEL TOKENS TODAY"
+                            : "MODEL TOKENS"
                     )
                         .font(.system(size: 8, weight: .semibold))
                         .tracking(0.7)
@@ -895,7 +897,7 @@ private struct ProviderRow: View {
                 Text(primaryValue)
                     .font(.system(size: 15, weight: .semibold, design: .rounded))
                     .monospacedDigit()
-                Text(provider.updatedDate.map(freshnessText) ?? "更新时间未知")
+                Text(provider.updatedDate.map(freshnessText) ?? "update time unknown")
                     .font(.system(size: 8))
                     .foregroundStyle(
                         provider.state != "ready"
@@ -913,15 +915,15 @@ private struct ProviderRow: View {
         if let balance = provider.balance {
             return formatBalance(balance)
         }
-        return provider.state == "ready" ? "—" : "异常"
+        return provider.state == "ready" ? "—" : "ERR"
     }
 
     private var stateLabel: String {
         switch provider.state {
-        case "ready": return "数据正常"
-        case "needs_configuration": return "等待配置"
-        case "auth_error": return "需要登录"
-        default: return "连接异常"
+        case "ready": return "Live"
+        case "needs_configuration": return "Needs setup"
+        case "auth_error": return "Sign-in required"
+        default: return "Connection error"
         }
     }
 }
@@ -968,7 +970,7 @@ private struct WindowRow: View {
 
     private var quotaDetail: String {
         guard let used = window.used, let limit = window.limit else {
-            return "配额窗口"
+            return "Quota window"
         }
         return "\(formatCompactNumber(used)) / \(formatCompactNumber(limit))"
     }
@@ -984,7 +986,7 @@ private struct ModelTokenRow: View {
            model.tokens > 0,
            cached > 0 {
             let share = Int((cached / model.tokens * 100).rounded())
-            text += " · \(share)% 缓存"
+            text += " · \(share)% cached"
         }
         return text
     }
@@ -993,7 +995,7 @@ private struct ModelTokenRow: View {
         HStack(spacing: 7) {
             Text(
                 model.periodId == "today"
-                    ? "今日·本机"
+                    ? "Today · local"
                     : basisLabel(model.basis)
             )
                 .font(.system(size: 7, weight: .semibold))
@@ -1129,10 +1131,10 @@ private enum BrandAssets {
 
 private func freshnessText(_ date: Date) -> String {
     let seconds = max(0, Date().timeIntervalSince(date))
-    if seconds < 60 { return "刚刚更新" }
-    if seconds < 3_600 { return "\(Int(seconds / 60)) 分钟前更新" }
-    if seconds < 86_400 { return "\(Int(seconds / 3_600)) 小时前更新" }
-    return chineseDateTime(date)
+    if seconds < 60 { return "updated just now" }
+    if seconds < 3_600 { return "updated \(Int(seconds / 60))m ago" }
+    if seconds < 86_400 { return "updated \(Int(seconds / 3_600))h ago" }
+    return localDateTime(date)
 }
 
 private func formatPercent(_ value: Double?) -> String {
@@ -1142,12 +1144,12 @@ private func formatPercent(_ value: Double?) -> String {
 
 private func resetText(_ value: String?) -> String {
     guard let date = parseISO8601(value) else {
-        return "未提供重置时间"
+        return "no reset time provided"
     }
     if date < Date() {
-        return "等待刷新重置"
+        return "awaiting refresh"
     }
-    return "重置 \(chineseDateTime(date))"
+    return "resets \(localDateTime(date))"
 }
 
 private func paceForWindow(
@@ -1192,18 +1194,17 @@ private func paceForWindow(
 private func futureText(_ date: Date) -> String {
     let seconds = date.timeIntervalSinceNow
     if seconds < 3_600 {
-        return "\(max(1, Int(seconds / 60))) 分钟后"
+        return "in \(max(1, Int(seconds / 60)))m"
     }
     if seconds < 86_400 {
         let hours = seconds / 3_600
-        return "\(formatCompactNumber(hours)) 小时后"
+        return "in \(formatCompactNumber(hours))h"
     }
-    return chineseDateTime(date)
+    return localDateTime(date)
 }
 
-private func chineseDateTime(_ date: Date) -> String {
+private func localDateTime(_ date: Date) -> String {
     let formatter = DateFormatter()
-    formatter.locale = Locale(identifier: "zh_CN")
     formatter.dateStyle = .medium
     formatter.timeStyle = .short
     return formatter.string(from: date)
@@ -1265,10 +1266,10 @@ private func formatCompactNumber(
 
 private func basisLabel(_ basis: String) -> String {
     switch basis {
-    case "api_usage": return "API·账户"
-    case "session_logs": return "日志·本机"
-    case "quota_percentage": return "配额·校准"
-    default: return "其他"
+    case "api_usage": return "API · account"
+    case "session_logs": return "Logs · local"
+    case "quota_percentage": return "Quota · calibrated"
+    default: return "Other"
     }
 }
 
@@ -1428,8 +1429,8 @@ private final class UsageMenuBarDelegate: NSObject, NSApplicationDelegate {
         button.image = nil
         button.imagePosition = .noImage
         button.title = store.menuTitle
-        button.toolTip = "AI 用量：\(store.menuTitle)"
-        button.setAccessibilityLabel("AI 用量：\(store.menuTitle)")
+        button.toolTip = "AI usage: \(store.menuTitle)"
+        button.setAccessibilityLabel("AI usage: \(store.menuTitle)")
         statusItem?.length = NSStatusItem.variableLength
     }
 }

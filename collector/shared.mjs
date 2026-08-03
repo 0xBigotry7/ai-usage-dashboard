@@ -63,18 +63,18 @@ export function toIsoTime(value) {
 
 export function durationToWindow(durationSeconds) {
   if (durationSeconds === 18_000) {
-    return { id: "five_hour", label: "5 小时", durationSeconds };
+    return { id: "five_hour", label: "5-hour", durationSeconds };
   }
   if (durationSeconds === 604_800) {
-    return { id: "weekly", label: "本周", durationSeconds };
+    return { id: "weekly", label: "Weekly", durationSeconds };
   }
   if (durationSeconds === 86_400) {
-    return { id: "daily", label: "今日", durationSeconds };
+    return { id: "daily", label: "Daily", durationSeconds };
   }
   const hours = Math.round((durationSeconds / 3600) * 10) / 10;
   return {
     id: `window_${durationSeconds}`,
-    label: hours >= 24 ? `${Math.round(hours / 24)} 天` : `${hours} 小时`,
+    label: hours >= 24 ? `${Math.round(hours / 24)}-day` : `${hours}-hour`,
     durationSeconds,
   };
 }
@@ -108,15 +108,15 @@ function detailedNetworkError(error) {
   const code = error?.cause?.code || error?.code;
   if (!code) return null;
   const normalized = String(code).toUpperCase();
-  let label = "网络连接失败";
-  if (normalized === "ECONNRESET") label = "连接被重置";
-  else if (normalized === "ECONNREFUSED") label = "连接被拒绝";
+  let label = "Network connection failed";
+  if (normalized === "ECONNRESET") label = "Connection reset";
+  else if (normalized === "ECONNREFUSED") label = "Connection refused";
   else if (normalized === "ENOTFOUND" || normalized === "EAI_AGAIN") {
-    label = "DNS 解析失败";
+    label = "DNS lookup failed";
   } else if (normalized.includes("TIMEOUT") || normalized === "ETIMEDOUT") {
-    label = "连接超时";
+    label = "Connection timed out";
   }
-  const detailed = new Error(`${label}（${normalized}）`, { cause: error });
+  const detailed = new Error(`${label} (${normalized})`, { cause: error });
   detailed.code = normalized;
   return detailed;
 }
@@ -143,11 +143,13 @@ export async function fetchJson(url, options = {}, timeoutMs = 20_000) {
       error.payload = payload;
       throw error;
     }
-    if (payload === null) throw new Error("服务返回了无法解析的数据");
+    if (payload === null) {
+      throw new Error("Service returned data that could not be parsed");
+    }
     return payload;
   } catch (error) {
     if (error?.name === "AbortError") {
-      throw new Error("连接超时");
+      throw new Error("Connection timed out");
     }
     const detailed = detailedNetworkError(error);
     if (detailed) throw detailed;
@@ -176,7 +178,7 @@ export function providerError(provider, error, source, updatedAt = new Date().to
     balance: null,
     message: authError
       ? provider.authMessage
-      : error?.message || "暂时无法取得配额数据",
+      : error?.message || "Temporarily unable to fetch quota data",
     retryable,
   };
 }

@@ -279,7 +279,7 @@ function syntheticProvider({
         ? [
             {
               id: "weekly",
-              label: "本周",
+              label: "Weekly",
               durationSeconds: 604_800,
               usedPercent: 42,
               used: null,
@@ -351,7 +351,7 @@ test("provider refresh coordinator retries one transient failure before degradin
         return syntheticProvider({
           state: "error",
           updatedAt: new Date(now).toISOString(),
-          message: "连接超时（UND_ERR_CONNECT_TIMEOUT）",
+          message: "Connection timed out (UND_ERR_CONNECT_TIMEOUT)",
         });
       }
       return syntheticProvider({
@@ -387,7 +387,7 @@ test("provider refresh coordinator keeps last-good data through two failed cycle
       return syntheticProvider({
         state: "error",
         updatedAt: new Date(now).toISOString(),
-        message: "fetch failed（ECONNRESET）",
+        message: "fetch failed (ECONNRESET)",
       });
     },
   };
@@ -404,7 +404,7 @@ test("provider refresh coordinator keeps last-good data through two failed cycle
   assert.equal(firstFailure[0].updatedAt, initial[0].updatedAt);
   assert.equal(firstFailure[0].windows[0].usedPercent, 42);
   assert.equal(firstFailure[0].tokenUsage.totalTokens, 4_200_000);
-  assert.match(firstFailure[0].message, /旧数据 · 重试中/);
+  assert.match(firstFailure[0].message, /Stale data · retrying/);
   assert.equal(duringBackoff[0], firstFailure[0]);
   assert.equal(secondFailure[0].state, "ready");
   assert.equal(calls, 5);
@@ -465,7 +465,7 @@ test("provider refresh coordinator exposes auth errors immediately without retry
       return syntheticProvider({
         state: "auth_error",
         updatedAt: new Date(now).toISOString(),
-        message: "登录已失效",
+        message: "Sign-in expired",
       });
     },
   };
@@ -475,7 +475,7 @@ test("provider refresh coordinator exposes auth errors immediately without retry
   const authError = await coordinator.collect([adapter], {});
 
   assert.equal(authError[0].state, "auth_error");
-  assert.equal(authError[0].message, "登录已失效");
+  assert.equal(authError[0].message, "Sign-in expired");
   assert.equal(calls, 2);
   assert.equal(waits, 0);
 });
@@ -521,7 +521,7 @@ test("provider refresh coordinator allows one immediate auth recovery attempt", 
         return syntheticProvider({
           state: "auth_error",
           updatedAt: new Date(now).toISOString(),
-          message: "登录已失效",
+          message: "Sign-in expired",
         });
       }
       return syntheticProvider({
@@ -554,7 +554,7 @@ test("provider refresh coordinator limits repeated manual auth attempts", async 
       return syntheticProvider({
         state: "auth_error",
         updatedAt: new Date(now).toISOString(),
-        message: "登录已失效",
+        message: "Sign-in expired",
       });
     },
   };
@@ -585,7 +585,7 @@ test("fetchJson exposes the safe low-level connection error code", async () => {
   try {
     await assert.rejects(
       fetchJson("https://example.invalid/usage"),
-      /连接被重置（ECONNRESET）/,
+      /Connection reset \(ECONNRESET\)/,
     );
   } finally {
     globalThis.fetch = originalFetch;
@@ -703,12 +703,12 @@ test("estimates weekly token equivalents without double-counting scoped models",
     ],
     {
       id: "example-subscription",
-      label: "Example AI 综合订阅",
+      label: "Example AI subscription (combined)",
       capacityTokens: 10_000_000,
       scopedModels: [
         {
           id: "example-reasoning-model",
-          label: "Reasoning 模型独立额度",
+          label: "Reasoning model separate quota",
           windowId: "weekly_reasoning",
           capacityTokens: 5_000_000,
         },
@@ -792,7 +792,7 @@ test("remote snapshot whitelist strips credentials and local host details", () =
         windows: [
           {
             id: "five_hour",
-            label: "5 小时",
+            label: "5-hour",
             durationSeconds: 18000,
             usedPercent: 21,
             used: 21,
@@ -812,7 +812,7 @@ test("remote snapshot whitelist strips credentials and local host details", () =
           models: [
             {
               id: "kimi-code-subscription",
-              label: "Kimi Code 综合订阅",
+              label: "Kimi Code subscription (combined)",
               windowId: "weekly",
               usedPercent: 21,
               capacityTokens: 10_000_000,
@@ -1045,7 +1045,7 @@ test("merges independently pushed provider rows without exposing legacy payloads
         windows: [
           {
             id: "five_hour",
-            label: "5 小时",
+            label: "5-hour",
             durationSeconds: 18000,
             usedPercent: 14,
             resetsAt: "2026-07-24T05:00:00.000Z",
@@ -1104,7 +1104,7 @@ test("drops malformed remote balances instead of emitting a null numeric value",
         updatedAt: "2026-07-24T02:00:00.000Z",
         windows: [],
         balance: {
-          label: "余额",
+          label: "Balance",
           value: "not-a-number",
           unit: "USD",
         },

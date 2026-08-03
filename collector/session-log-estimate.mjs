@@ -563,7 +563,7 @@ function sessionLogEstimate(
     sessionCount: summary.sessionCount,
     models: summary.models,
     assumption: coverageIncomplete
-      ? `${assumption} 部分日志或祖先 rollout 无法完整读取，因此标记为近似值。`
+      ? `${assumption} Some logs or ancestor rollouts could not be fully read, so this is marked as approximate.`
       : assumption,
   };
 }
@@ -591,7 +591,9 @@ export async function estimateCodexSessionLogTokenEstimates(
     } catch (error) {
       coverageIncomplete = true;
       if (error?.code !== "ENOENT") {
-        console.warn(`跳过无法读取的 Codex 会话日志：${basename(path)}`);
+        console.warn(
+          `Skipping unreadable Codex session log: ${basename(path)}`,
+        );
       }
     }
   }
@@ -625,7 +627,9 @@ export async function estimateCodexSessionLogTokenEstimates(
     } catch (error) {
       coverageIncomplete = true;
       if (error?.code !== "ENOENT") {
-        console.warn(`跳过无法读取的 Codex 会话日志：${basename(path)}`);
+        console.warn(
+          `Skipping unreadable Codex session log: ${basename(path)}`,
+        );
       }
     }
   }
@@ -683,7 +687,7 @@ export async function estimateCodexSessionLogTokenEstimates(
     todaySinceMs,
     todaySeconds,
     "today",
-    "仅统计这台 Mac 从本地零点开始的 Codex token_count 增量；总量 = 输入（含缓存输入）+ 输出，缓存输入与推理输出分别是输入和输出的子集，不重复相加；不读取或上传提示词与回复正文。",
+    "Counts only this machine's Codex token_count deltas since local midnight; total = input (incl. cached input) + output, where cached input and reasoning output are subsets of input and output and are not added twice; prompts and response bodies are never read or uploaded.",
     coverageIncomplete,
   );
   const weeklyCycle = sessionLogEstimate(
@@ -691,7 +695,7 @@ export async function estimateCodexSessionLogTokenEstimates(
     sinceMs,
     periodSeconds,
     "weekly_cycle",
-    "仅统计这台 Mac 的 Codex 会话日志，按订阅周期窗口（与配额 API 的周窗口对齐，取不到时回退为最近 7 天）累计 token_count 增量；总量 = 输入（含缓存输入）+ 输出；跨设备用量不会包含在内。",
+    "Counts only this machine's Codex session logs, accumulating token_count deltas over the subscription cycle window (aligned with the quota API's weekly window, falling back to the past 7 days when unavailable); total = input (incl. cached input) + output; usage from other devices is not included.",
     coverageIncomplete,
   );
   return [today, weeklyCycle].filter(Boolean);

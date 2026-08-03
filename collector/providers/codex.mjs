@@ -17,7 +17,7 @@ const CODEX = {
   name: "OpenAI Codex",
   shortName: "CX",
   accent: "#7bf1a8",
-  authMessage: "Codex 登录已失效，请在这台 Mac 上运行 codex 重新登录。",
+  authMessage: "Codex sign-in has expired. Run codex on this machine to sign in again.",
 };
 
 const DEFAULT_USAGE_URL = "https://chatgpt.com/backend-api/wham/usage";
@@ -64,17 +64,17 @@ export function normalizeCodexUsage(payload, updatedAt = new Date().toISOString(
     accent: CODEX.accent,
     state: "ready",
     plan: formatPlan(payload?.plan_type),
-    source: "本机 Codex OAuth",
+    source: "Local Codex OAuth",
     sourceKind: "oauth",
     host: hostname(),
     updatedAt,
     windows,
     balance: hasBalance
-      ? { label: "可用积分", value: balanceNumber, unit: "credits" }
+      ? { label: "Available credits", value: balanceNumber, unit: "credits" }
       : null,
     message:
       windows.length === 0
-        ? "OpenAI 当前没有返回可显示的配额窗口。"
+        ? "OpenAI did not return any quota windows to display."
         : null,
   };
 }
@@ -98,7 +98,7 @@ export async function collectCodexUsage(env = process.env) {
     const accessToken = auth?.tokens?.access_token;
     const accountId = auth?.tokens?.account_id;
     if (!accessToken) {
-      const error = new Error("本机没有可用的 Codex 登录");
+      const error = new Error("No usable Codex sign-in on this machine");
       error.status = 401;
       throw error;
     }
@@ -114,7 +114,7 @@ export async function collectCodexUsage(env = process.env) {
     const provider = normalizeCodexUsage(payload, updatedAt);
     const quotaEstimate = estimateWeeklyQuotaTokens(provider.windows, {
       id: "codex-subscription",
-      label: "Codex 综合订阅",
+      label: "Codex subscription (combined)",
       capacityTokens: env.USAGE_HUB_CODEX_WEEKLY_TOKEN_CAPACITY,
     });
     provider.tokenUsage =
@@ -127,7 +127,7 @@ export async function collectCodexUsage(env = process.env) {
       error.status = 401;
     }
     return {
-      ...providerError(CODEX, error, "本机 Codex OAuth", updatedAt),
+      ...providerError(CODEX, error, "Local Codex OAuth", updatedAt),
       tokenUsage:
         logEstimates.find((estimate) => estimate.periodId === "today") ||
         logEstimates[0] ||

@@ -5,7 +5,7 @@ import { spawnSync } from "node:child_process";
 
 const code = (await readFile(join(homedir(), ".usage-hub", "view-code"), "utf8")).trim();
 if (!code) {
-  console.error("查看码尚未生成。");
+  console.error("View code has not been generated yet.");
   process.exit(1);
 }
 const result = spawnSync("pbcopy", [], {
@@ -14,4 +14,4 @@ const result = spawnSync("pbcopy", [], {
   stdio: ["pipe", "ignore", "inherit"],
 });
 if (result.status !== 0) process.exit(result.status || 1);
-console.log("查看码已复制到剪贴板。");
+console.log("View code copied to the clipboard.");

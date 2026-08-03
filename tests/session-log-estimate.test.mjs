@@ -1071,12 +1071,12 @@ test("returns no quota token estimate without a user-calibrated capacity", () =>
     assert.equal(
       estimateWeeklyQuotaTokens(windows, {
         id: "example-subscription",
-        label: "Example AI 综合订阅",
+        label: "Example AI subscription (combined)",
         capacityTokens,
         scopedModels: [
           {
             id: "example-reasoning-model",
-            label: "Reasoning 模型独立额度",
+            label: "Reasoning model separate quota",
             windowId: "weekly_reasoning",
             capacityTokens: 5_000_000,
           },
@@ -1096,18 +1096,18 @@ test("converts quota percentages only with an explicitly configured capacity", (
     ],
     {
       id: "example-subscription",
-      label: "Example AI 综合订阅",
+      label: "Example AI subscription (combined)",
       capacityTokens: "10000000",
       scopedModels: [
         {
           id: "example-reasoning-model",
-          label: "Reasoning 模型独立额度",
+          label: "Reasoning model separate quota",
           windowId: "weekly_reasoning",
           capacityTokens: 5_000_000,
         },
         {
           id: "example-uncalibrated-model",
-          label: "未校准模型额度",
+          label: "Uncalibrated model quota",
           windowId: "five_hour",
         },
       ],
@@ -1122,5 +1122,5 @@ test("converts quota percentages only with an explicitly configured capacity", (
   assert.equal(result.models.length, 2);
   assert.equal(result.models[1].estimatedTokens, 2_000_000);
   assert.equal(result.models[1].countedInTotal, false);
-  assert.match(result.assumption, /校准值/);
+  assert.match(result.assumption, /user calibration/);
 });
