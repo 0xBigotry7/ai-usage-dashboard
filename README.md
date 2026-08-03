@@ -30,6 +30,30 @@ Nothing leaves your machine: the collector runs on `127.0.0.1`, reads
 CLI-owned files and documented billing endpoints, and never touches message
 content or stores provider credentials in the repo or browser.
 
+## Your keys never leave your machine
+
+Worried a usage tool might phone home with your credentials? This one is
+built so it structurally cannot:
+
+- **Local-only by default.** The collector binds `127.0.0.1` and rejects
+  requests with a non-loopback `Host` header (`collector/server.mjs`). There
+  is no telemetry, no analytics, no update check — the only network calls
+  are to the provider APIs you configured.
+- **Keys stay in one file you own**: `~/.usage-hub/env`, created with mode
+  `0600`, outside the repository. Credentials are never written to the
+  browser, logs, or history database.
+- **Session logs are read for numbers only.** The Codex/Claude Code parsers
+  extract token counters, model names, and session-relationship metadata —
+  prompts and responses are never read into memory as data, exported, or
+  displayed (`collector/session-log-estimate.mjs`, `collector/claude-session-log.mjs`).
+- **Cloud sync is off unless you turn it on**, and the hosted ingest accepts
+  a strict field allowlist that has no place to put a secret: numeric usage,
+  reset times, and display metadata only — OAuth tokens, API keys, hostnames,
+  file paths, prompts, and raw logs are rejected by schema
+  (`lib/remote-usage.ts`, enforced by tests).
+- **It's MIT-licensed and small.** `grep -rn "fetch(" collector/` shows every
+  outbound call. Audit it in an afternoon.
+
 ## Quick start
 
 Requirements: macOS or Linux, Node.js 22.13+.

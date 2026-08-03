@@ -11,6 +11,19 @@ the version links below resolve once their tags are pushed.
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-08-04
+
+### Changed
+
+- The npm package is published as `ai-usage-hub` (the unscoped
+  `ai-usage-dashboard` name is taken on the registry); the CLI command is
+  `npx ai-usage-hub`.
+- The dashboard shell shrank to a 149-line composition: the topbar, overview
+  strip, provider grid, access gate, and connection/footer sections are now
+  focused memoized components, with shared derived state and keyboard
+  shortcuts extracted into dedicated hooks and the copy-summary builder into
+  a pure module. Every frontend file is under 200 lines.
+
 ## [0.10.0] - 2026-08-04
 
 ### Added
@@ -229,6 +242,7 @@ the version links below resolve once their tags are pushed.
   dated in the future.
 
 [Unreleased]: https://github.com/0xBigotry7/ai-usage-dashboard/compare/v0.8.3...HEAD
+[0.10.1]: https://github.com/0xBigotry7/ai-usage-dashboard/releases/tag/v0.10.1
 [0.10.0]: https://github.com/0xBigotry7/ai-usage-dashboard/releases/tag/v0.10.0
 [0.9.1]: https://github.com/0xBigotry7/ai-usage-dashboard/releases/tag/v0.9.1
 [0.9.0]: https://github.com/0xBigotry7/ai-usage-dashboard/releases/tag/v0.9.0
