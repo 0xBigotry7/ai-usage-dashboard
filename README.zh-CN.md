@@ -1,58 +1,33 @@
-# AI Usage Dashboard
+# AI Usage Dashboard（AI 用量仪表盘）
 
-<img src="public/og.png" alt="AI Usage Dashboard 展示多个平台的配额窗口、余额与 Token 估算" width="1731">
+[![CI](https://github.com/0xBigotry7/ai-usage-dashboard/actions/workflows/ci.yml/badge.svg)](https://github.com/0xBigotry7/ai-usage-dashboard/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/0xBigotry7/ai-usage-dashboard)](https://github.com/0xBigotry7/ai-usage-dashboard/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Node.js 22+](https://img.shields.io/badge/Node.js-22.13%2B-5FA04E.svg)](package.json)
 
-一个本地优先、可扩展的 AI 用量 Dashboard，可同时展示配额窗口、官方 API
-用量、余额和 Token 估算。适合桌面浏览器、外接常亮小屏，也附带原生 macOS
-顶栏预览。
+**一眼看清你烧掉的每个 AI 订阅：配额窗口、重置倒计时、余额、真实 token
+用量 —— 全部在本机采集，按你的方式呈现。**
+
+<img src="public/og.png" alt="AI Usage Dashboard 展示各服务商配额窗口、余额与 token 估算" width="1731">
 
 [English](README.md)
 
-## 为什么做这个项目
+每个 AI 编程工具都把用量藏在不同的地方。本工具在你自己的机器上读取它们，
+用三种界面呈现同一份诚实的数据：
 
-不同 AI 编程工具把配额、重置时间和 Token 记录放在不同位置。本项目把它们归一化到同一个界面，同时避免把平台凭证或对话正文发送到浏览器。
+- **浏览器仪表盘** —— 配额环、重置倒计时、余额、分层 token 视图、历史趋势；
+- **常亮小屏** —— 专为 480×320 / 800×480 副屏设计的 `/display` 视图；
+- **macOS 菜单栏** —— 原生常驻应用，让最重要的三个服务商全天可见。
 
-项目明确区分这些概念：
+开箱即支持 **OpenAI Codex、Claude Code、Kimi Code、OpenAI API、OpenRouter、
+DeepSeek、GitHub Copilot**，并提供文档化的快照协议接入其他任何来源。
 
-- **平台配额**：平台返回的已用百分比和重置时间；
-- **官方 API 用量**：文档化计费接口返回的真实 Token 或 Credits；
-- **本机日志 Token**：本地 CLI 会话日志中记录到的 Token 计数；
-- **Token 等效估算**：配额百分比乘以可配置的周容量。
-
-几种口径覆盖范围不同，每个平台内会分开显示。跨平台总览明确拆成“今日已记录”、
-“订阅周期已记录”和“配额换算”三层，三层互不相加，也不会把配额换算伪装成
-真实处理量。
-
-## 主要功能
-
-- 采集器只监听 `127.0.0.1`，单个平台异常不会拖垮整个 Dashboard；
-- 展示真实配额窗口、重置时间、余额及可获得的官方 API 用量；
-- 可隐藏平台、设置 60% / 70% / 80% 关注阈值，并显示风险状态；
-- 使用随应用保存的真实平台图标，自定义 Provider 会回退到文字缩写；
-- 独立 `/display` 常亮屏，适配 480×320 和 800×480，支持自动分页、全屏和
-  Screen Wake Lock；
-- 原生 macOS 顶栏最多直接显示 3 个平台，展开后可看全部配额窗口、陈旧警告、
-  今日实录输入 / 输出总量和可获得的逐模型 Token；
-- 可选 Cloudflare 多设备汇总，云端只接受严格白名单快照。
-
-## 当前内置接入
-
-| 接入 | 配额来源 | Token 口径 | 凭证边界 |
-| --- | --- | --- | --- |
-| OpenAI Codex | 已有 Codex CLI OAuth 登录态 | 可选配额换算 + 本机 `token_count` 日志 | 只读 CLI 文件，不改写凭证 |
-| Kimi Code | API Key 或尚未过期的 CLI 登录态 | 可选配额换算 | Key 保存在仓库外的 `0600` 文件 |
-| OpenAI API | 官方 Organization Usage API | 过去 7 天真实模型 Token 与请求数 | Admin Key 只留在本机采集器 |
-| OpenRouter | 官方当前 Key 用量接口 | Key 消费、上限和重置周期 | API Key 只留在本机采集器 |
-| DeepSeek API | 官方余额接口 | 只显示余额，不虚构配额窗口 | API Key 只留在本机采集器 |
-| GitHub Copilot | 官方用户 AI Credits 计费接口 | 本月 Credits，可选配置上限后显示百分比 | 仅需 `Plan: read` 的 Fine-grained Token |
-| 自定义快照 | 任意实现归一化协议的采集器 | 任意归一化口径 | 云端只接受严格白名单字段 |
-
-Codex 和 Kimi 的订阅配额来自官方客户端正在使用、但没有承诺为稳定第三方
-API 的端点；其余直接接入均使用平台文档化 API。
+数据不出你的机器：采集器只监听 `127.0.0.1`，读取 CLI 自己的文件和官方
+计费接口，绝不读取消息内容，凭证也绝不进入仓库或浏览器。
 
 ## 快速开始
 
-需要 macOS 或 Linux，以及 Node.js 22.13 或更高版本。
+要求：macOS 或 Linux，Node.js 22.13+。
 
 ```bash
 git clone https://github.com/0xBigotry7/ai-usage-dashboard.git
@@ -61,176 +36,130 @@ npm ci
 npm run local
 ```
 
-打开 <http://localhost:3000>。本地采集器只监听 `127.0.0.1:4317`。
+打开 <http://localhost:3000>。如果这台机器已在用 Codex 或 Claude Code
+CLI，首屏就是真实数据 —— 零配置。
 
-外接显示器或 HDMI 小屏可直接打开 <http://localhost:3000/display>。常亮和
-kiosk 配置见[外接屏指南](docs/external-display.md)。
-
-Codex 会读取已有 CLI 登录。Kimi 为可选接入：
+可选服务商各一条命令：
 
 ```bash
-npm run configure:kimi
+npm run configure:kimi                          # Kimi Code API key
+npm run configure:provider -- openai-api        # 或 openrouter / deepseek / github-copilot
 ```
 
-输入过程不会回显。Key 保存在 `~/.usage-hub/env`，不会进入 Git、浏览器或历史数据库。
-
-其他平台可按需逐个配置：
-
-```bash
-npm run configure:provider -- openai-api
-npm run configure:provider -- openrouter
-npm run configure:provider -- deepseek
-npm run configure:provider -- github-copilot
-```
-
-可选平台只有在本机配置完整后才会出现，不会用一排“等待配置”卡片干扰日常使用。
-
-## 用量与 Token 口径
-
-### 官方 API 用量
-
-OpenAI Organization Usage 会按模型返回真实 Token 和请求数；GitHub 返回
-AI Credits，OpenRouter 返回 Key 消费，DeepSeek 返回账户余额。这些数据不会被
-强行换算成订阅配额。
-
-### 配额百分比换算
-
-```text
-Token 等效估算 = 本周已用百分比 × 配置的周容量
-```
-
-容量没有内置默认值。只有显式配置后才会产出换算 Token 估算；未配置时只显示
-配额百分比：
-
-```bash
-npm run configure:capacity -- kimi 10000000
-```
-
-可将 `kimi` 换成 `codex`，或用 `clear` 代替数字来取消校准。该容量是你自己的
-显示假设，不是平台公布的官方 Token 上限。
-
-### 本机 CLI 日志
-
-Codex 适配器只读取本地 JSONL 中的 `token_count`、模型元数据和
-`session_meta` 关系字段，并同时给出“本地自然日”和“当前订阅周期”两份实录。
-订阅周期取自日志事件内嵌的周配额窗口，取不到时回退为最近 7 天。
-
-统计按累计计数器的增量计算。fork / resume 产生的子任务如果用新时间戳重放了
-父任务历史，会先按 rollout 血缘删除与祖先连续匹配的前缀，再从第一个新回合开始
-累计；平行子任务各自新增的工作仍会保留。
-
-`totalTokens = inputTokens + outputTokens`。缓存输入已经包含在输入里，推理输出
-已经包含在输出里；二者会单独展示，但不会再次相加。提示词和回复正文不会被导出
-或上传。该口径仅覆盖本机，其他设备、已删除日志和 CLI 没有写入的调用不会被统计。
-
-可通过以下方式关闭：
-
-```bash
-USAGE_HUB_CODEX_LOG_ESTIMATE=off npm run local
-```
-
-这些口径回答的是不同问题，会带着各自标签并排展示。总览把“今日实录”、
-“订阅周期实录”和“配额换算”分开；没有实测 Token 来源的平台会显示“暂无实测”，
-而不是补一个虚构的 0。
-
-## macOS 顶栏
-
-打包后的原生顶栏程序会自动启动随 App 打包的本机采集器，并每 60 秒读取一次。
-菜单栏会直接显示最多 3 个平台的
-主要配额百分比；陈旧快照会在对应平台后明确标成 `旧`，平台错误会标成 `异常`，
-不再使用含义模糊的尾部感叹号。展开后可以看到每个平台返回的全部配额窗口和
-重置时间、余额、数据新鲜度、可获得的今日“输入 + 输出”总量，以及最多 3 个
-逐模型 Token。官方 API、本机日志和按配额换算的估算会继续使用不同标签，不会
-混成一个数字。顶栏每 60 秒读取本地缓存，平台上游的常规查询最多每 5 分钟
-一次；瞬时失败会短暂重试一次，并在退避期间保留最后一次成功快照。认证失效或
-缺少配置时，手动刷新只允许一次受控的立即恢复尝试，不能绕过正常数据或瞬时错误
-的冷却。顶栏程序不会直接访问平台，也不保存凭证。
-
-### 从源码本地构建使用
-
-目前正式支持的安装方式就是从源码本地构建；仓库暂不发布经过 Apple 公证的
-`.app`、DMG 或 Homebrew cask。需要 macOS 14 或更新版本、Node.js 22.13 或更新
-版本，以及包含 Swift 6 的 Xcode 16 或更新版本。
-
-先安装依赖；只有需要浏览器页面时才需要另外启动本地 Dashboard：
-
-```bash
-npm ci
-npm run local
-```
-
-构建并启动顶栏应用：
+## macOS 菜单栏
 
 ```bash
 npm run build:menubar
 open "dist/AI Usage Dashboard Menu Bar.app"
 ```
 
-打包后的 App 会自行带起只监听 `127.0.0.1:4317` 的采集器，凭证仍只从
-`~/.usage-hub/env` 读取。直接运行 `swift run` 没有 App Bundle，因此 Swift
-开发时仍需在另一个终端运行 `npm run collector`。若希望“打开 Dashboard”
-跳到线上实例，可用
-`USAGE_HUB_DASHBOARD_URL=https://example.com npm run build:menubar` 构建。
-确认构建可用后，再把 `dist/` 里的应用拖进
-`/Applications`，然后才能稳定使用“登录时启动”。
+应用自带并启动本地采集器，菜单栏常驻最多三个服务商，弹层里有每个配额
+窗口、重置时间和今日观测 token。机器需有 Node.js 22.13+（Homebrew、
+nvm、mise、asdf 安装的都能自动发现；`USAGE_HUB_NODE` 可手动指定）。
+把应用拖进 `/Applications` 并开启 **Launch at Login** 即可常驻。
 
-本地构建使用 ad-hoc 签名，适合在完成构建的这台电脑上开发和个人安装，但不等于
-已经公证的公开发行版，也不应以“Apple 已验证开发者”的形式二次分发。
-手动运行 **macOS package proof** 工作流可以在不配置证书的情况下构建同样的
-临时测试包；它只会上传短期 workflow artifact，不会创建 GitHub Release。
-公开分发前请阅读
-[macOS 打包、签名与 Homebrew 指南](docs/macos-release.md)。
+本地构建为 ad-hoc 签名，适合个人使用；对外分发前请阅读
+[macOS 打包与签名](docs/macos-release.md)。
 
-顶栏现在会固定显示 3 个平台的用量摘要；只有平台同时提供真实周期长度和重置时间
-时才会计算周期末用量趋势；用户主动开启后，还可以发送去重的 70% / 80% / 90%
-额度提醒。pace 与通知行为借鉴并改写自 CodexBar 的实现思路，具体参考文件和复用
-边界见
-[CodexBar 实现审阅](docs/attribution.md#codexbar-implementation-review)。
+---
 
-## 外接常亮屏
+# 细节
 
-`/display` 是专门为外接屏设计的信息面，不是把完整 Dashboard 强行压缩。它在
-480×320 和 800×480 下无需滚动；窄屏每页显示 3 个平台，宽屏每页显示 4 个，
-平台更多时每 8 秒自动翻页。页面提供手动全屏与 Screen Wake Lock 开关；能否
-真正阻止休眠仍取决于浏览器和操作系统支持。
+## 数字如何保持诚实
 
-完整接线和 kiosk 设置见[外接屏指南](docs/external-display.md)。
+四个概念始终分开、分别标注，绝不悄悄混算：
 
-## 云端与自定义 Provider
+- **配额（quota）** —— 服务商返回的百分比与重置时间；
+- **官方 API 用量** —— 文档化计费接口返回的精确 token/积分；
+- **观测 token** —— 从本地 CLI 会话日志读出的计数器；
+- **token 等价值** —— 你自己配置的容量 × 配额百分比。
 
-项目可部署到 Cloudflare Workers + D1。采集器通过独立写入令牌上传脱敏快照，查看者使用另一个查看码换取安全 Cookie。
+总览分三个独立层（今日已记录、本订阅周期已记录、配额换算）。没有观测
+来源的服务商显示为"不可用"而不是伪造的零；估算出的重置时间会明确标注
+"估算"。
 
-公开仓库不内置任何特定远程机器、私有账号或平台专用的远端采集脚本。私有采集器可以保留在自己的机器上，只向本项目发送归一化快照。
+## 内置适配器
 
-新增 Provider 应当优先补充一个可信、可验证且当前 schema 尚不能表达的能力，
-而不是单纯增加平台数量。适配规则见
-[Provider 开发指南](docs/provider-development.md)。
+| 适配器 | 配额来源 | Token 方式 | 凭证边界 |
+| --- | --- | --- | --- |
+| OpenAI Codex | 本机 Codex CLI OAuth 会话 | 可选配额换算 + 本地 `token_count` 事件 | 只读 CLI 自己的文件，绝不写凭证 |
+| Claude Code | 无（没有文档化配额接口） | 本地逐消息 `usage` 记录的今日 + 近 7 天观测 token | 只读 CLI 会话日志，绝不读消息内容或凭证 |
+| Kimi Code | API key 或未过期的 CLI 会话 | 可选配额换算 | 可选 key 存于仓库外，权限 `0600` |
+| OpenAI API | 文档化 Organization Usage API | 精确的 7 天分模型 token 与请求数 | Admin key 只存在本地采集器 |
+| OpenRouter | 文档化 current-key 接口 | key 花费、上限、重置周期 | API key 只存在本地采集器 |
+| DeepSeek API | 文档化余额接口 | 仅余额，不虚构配额窗口 | API key 只存在本地采集器 |
+| GitHub Copilot | 文档化 AI Credits 计费接口 | 月度 AI Credits，可对比自定上限 | 细粒度 token（仅 `Plan: read`）只存本地 |
+| 自定义快照 | 任何输出规范化 schema 的采集器 | 任意规范化方式 | 云端接收严格字段白名单 |
+
+Codex 与 Kimi 的配额接口是官方客户端在用但未对第三方文档化的接口，其余
+直连适配器均使用文档化 API。详见[安全与局限](docs/security.md)。
+
+## Token 与用量方式
+
+**官方 API 用量。** OpenAI Organization Usage 返回按模型分组的精确
+token 与请求数；GitHub 返回 AI Credits，OpenRouter 返回 key 花费，
+DeepSeek 返回账户余额。这些数值绝不换算成订阅配额。
+
+**配额换算。** `估算 token = 周配额已用百分比 × 你配置的周容量`。
+没有内置容量 —— 不校准就只显示百分比：
+
+```bash
+npm run configure:capacity -- kimi 10000000   # 或 codex；传 "clear" 清除
+```
+
+**本地 CLI 日志。** Codex 与 Claude Code 适配器只读本地 JSONL 里的
+token 计数器、模型名和会话关系元数据 —— 绝不读提示词或回复。计数器按
+增量累加；fork/续接会话重放祖先历史时会先剔除匹配前缀，子代理的工作
+不会把父会话用量翻倍。`totalTokens = inputTokens + outputTokens`；缓存
+输入与推理输出作为子集标注，不重复相加。此方式只覆盖本机。可用
+`USAGE_HUB_CODEX_LOG_ESTIMATE=off` 或 `USAGE_HUB_CLAUDE_LOG_ESTIMATE=off`
+关闭。
+
+## macOS 菜单栏（深入）
+
+应用每 60 秒读一次自带的本地采集器；服务商 API 最多每 5 分钟轮询一次，
+带重试与退避。菜单栏常驻三个服务商（`*` 表示数据过期，`ERR` 表示服务商
+异常）；弹层展示全部配额窗口、重置时间、余额、新鲜度、今日观测输入+输出
+及每服务商最多三个模型的 token 余量。只有存在真实周期与重置时间才显示
+用量节奏预测；70/80/90% 提醒需手动开启且每周期去重。节奏与通知的设计
+借鉴自 CodexBar —— 见[出处说明](docs/attribution.md)。
+
+## 外接常亮小屏
+
+`/display` 在 480×320 与 800×480 下无需滚动，每 8 秒自动翻页，支持
+全屏与屏幕常亮（Wake Lock）。见[外接屏与 kiosk 部署](docs/external-display.md)。
+
+## 可选云端仪表盘
+
+可部署到 Cloudflare Workers + D1：采集器通过 bearer 保护的接口推送
+净化后的快照；查看者使用独立访问码。云端 schema 只接受数值用量与展示
+元数据 —— 绝不接受 OAuth token、API key、主机名、文件路径、提示词或
+原始日志。见[配置与部署](docs/configuration.md)。
+
+## 新增服务商
+
+本地适配器在 `collector/providers/index.mjs` 注册，只需返回一个规范化
+provider 对象，所有界面自动适配。动手前请读
+[Provider development](docs/provider-development.md) —— 新适配器应带来
+可信的新能力，而不只是一个 logo。
 
 ## 文档
 
 - [架构与数据流](docs/architecture.md)
-- [外接屏与 kiosk 配置](docs/external-display.md)
+- [外接屏与 kiosk 部署](docs/external-display.md)
 - [macOS 打包、签名与 Homebrew](docs/macos-release.md)
 - [配置与 Cloudflare 部署](docs/configuration.md)
-- [开发新的 Provider](docs/provider-development.md)
-- [安全模型与限制](docs/security.md)
-- [引用与实现来源](docs/attribution.md)
-- [第三方声明](THIRD_PARTY_NOTICES.md)
-- [Roadmap](docs/roadmap.md)
-- [变更日志](CHANGELOG.md)
-- [参与贡献](CONTRIBUTING.md)
+- [Provider 开发](docs/provider-development.md)
+- [安全模型与局限](docs/security.md)
+- [出处说明](docs/attribution.md) · [第三方声明](THIRD_PARTY_NOTICES.md)
+- [路线图](docs/roadmap.md) · [更新日志](CHANGELOG.md) · [参与贡献](CONTRIBUTING.md)
 
-## 项目状态
+## 状态与商标
 
-项目仍处于早期版本。平台没有返回的配额窗口会保持“未提供”；只有历史数据真实出现过百分比归零或下降时，才会推算下一次重置，并在页面明确标为“预计”。
-
-内置平台图标来自 MIT 许可的
-[`@lobehub/icons-static-svg` 1.94.0](https://github.com/lobehub/lobe-icons)，
-文件随应用保存在本地，不会访问图标 CDN。产品名称、Logo 和商标归各自权利人
-所有，详见[第三方声明](THIRD_PARTY_NOTICES.md)。
-
-本项目与 OpenAI、Moonshot AI、Cloudflare、CodexBar、Lobe Icons、ccusage
-均无隶属或合作关系。
+早期开源项目，刻意保留诚实的空白：缺失的配额窗口就显示为缺失。内置
+服务商图标来自 [`@lobehub/icons-static-svg` 1.94.0](https://github.com/lobehub/lobe-icons)
+（MIT），本地存储。产品名称与 logo 归各自所有者。本项目与 OpenAI、
+Anthropic、Moonshot AI、Cloudflare、CodexBar、Lobe Icons、ccusage 均无关联。
 
 ## 许可证
 

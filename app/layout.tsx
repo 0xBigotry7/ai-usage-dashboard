@@ -7,6 +7,9 @@ export const metadata: Metadata = {
     template: "%s · AI Usage Dashboard",
   },
   description: "An extensible AI quota and token usage dashboard.",
+  icons: {
+    icon: [{ url: "/favicon.svg", type: "image/svg+xml" }],
+  },
   openGraph: {
     title: "AI Usage Dashboard",
     description:
