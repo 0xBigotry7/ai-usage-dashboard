@@ -1,7 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { version as DASHBOARD_VERSION } from "../package.json";
 import { estimateNextResetAt } from "../lib/reset-estimate";
 import { ProviderLogo } from "./provider-logo";
@@ -193,7 +200,8 @@ function formatUpdated(value: string | null) {
 function formatAge(value: string | null) {
   if (!value) return "时间未知";
   const ageMs = Date.now() - new Date(value).getTime();
-  if (!Number.isFinite(ageMs) || ageMs < 0) return "刚刚";
+  if (!Number.isFinite(ageMs)) return "未知";
+  if (ageMs < 0) return "刚刚";
   const minutes = Math.floor(ageMs / 60_000);
   if (minutes < 1) return "刚刚";
   if (minutes < 60) return `${minutes} 分钟前`;
@@ -365,6 +373,24 @@ function resolveReset(
     resetsAt,
     estimated: resetsAt !== null,
   };
+}
+
+function pickNextReset<T extends { resetsAt: string | null }>(
+  resets: T[],
+  generatedAt: number,
+) {
+  // A reset that already passed must not stay pinned as "next".
+  const threshold = Math.max(generatedAt, Date.now());
+  return resets
+    .filter(
+      (reset) =>
+        reset.resetsAt && new Date(reset.resetsAt).getTime() > threshold,
+    )
+    .sort(
+      (a, b) =>
+        new Date(a.resetsAt || 0).getTime() -
+        new Date(b.resetsAt || 0).getTime(),
+    )[0];
 }
 
 function WindowRow({
@@ -771,7 +797,22 @@ function TokenOverview({ providers }: { providers: Provider[] }) {
   );
 }
 
-function ProviderCard({
+// Owns the 1s ticker internally so the rest of the tree does not re-render
+// every second; mount it with a `key` that changes when a load completes so
+// the countdown restarts from the top.
+function RefreshCountdown({ seconds }: { seconds: number }) {
+  const [secondsLeft, setSecondsLeft] = useState(seconds);
+  useEffect(() => {
+    const timer = window.setInterval(
+      () => setSecondsLeft((value) => (value <= 1 ? seconds : value - 1)),
+      1000,
+    );
+    return () => window.clearInterval(timer);
+  }, [seconds]);
+  return <>{secondsLeft}s</>;
+}
+
+const ProviderCard = memo(function ProviderCard({
   provider,
   history,
   warningThreshold,
@@ -924,7 +965,7 @@ function ProviderCard({
       </footer>
     </article>
   );
-}
+});
 
 function DisplayProviderTile({
   provider,
@@ -1036,6 +1077,7 @@ function DisplayProviderTile({
 type WakeLockSentinelLike = {
   released: boolean;
   release: () => Promise<void>;
+  addEventListener?: (type: "release", listener: () => void) => void;
 };
 
 function DedicatedDisplay({
@@ -1043,7 +1085,7 @@ function DedicatedDisplay({
   providers,
   history,
   error,
-  secondsLeft,
+  refreshSignal,
   warningThreshold,
   onRefresh,
 }: {
@@ -1051,13 +1093,15 @@ function DedicatedDisplay({
   providers: Provider[];
   history: HistoryPoint[];
   error: string | null;
-  secondsLeft: number;
+  refreshSignal: number;
   warningThreshold: number;
   onRefresh: () => void;
 }) {
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(3);
-  const [wakeLock, setWakeLock] = useState<WakeLockSentinelLike | null>(null);
+  const [wakeLockActive, setWakeLockActive] = useState(false);
+  const wakeLockRef = useRef<WakeLockSentinelLike | null>(null);
+  const wakeLockWantedRef = useRef(false);
   const [fullscreen, setFullscreen] = useState(false);
   const [clock, setClock] = useState("--:--");
 
@@ -1104,37 +1148,74 @@ function DedicatedDisplay({
       document.removeEventListener("fullscreenchange", handleFullscreen);
   }, []);
 
-  useEffect(
-    () => () => {
-      if (wakeLock && !wakeLock.released) void wakeLock.release();
-    },
-    [wakeLock],
-  );
-
-  async function toggleWakeLock() {
-    if (wakeLock && !wakeLock.released) {
-      await wakeLock.release();
-      setWakeLock(null);
-      return;
-    }
+  const acquireWakeLock = useCallback(async () => {
     const navigatorWithWakeLock = navigator as Navigator & {
       wakeLock?: {
         request: (type: "screen") => Promise<WakeLockSentinelLike>;
       };
     };
-    if (!navigatorWithWakeLock.wakeLock) return;
+    if (!navigatorWithWakeLock.wakeLock) return false;
     try {
-      setWakeLock(await navigatorWithWakeLock.wakeLock.request("screen"));
+      const sentinel = await navigatorWithWakeLock.wakeLock.request("screen");
+      wakeLockRef.current = sentinel;
+      setWakeLockActive(true);
+      // The browser can release the lock on its own (tab hidden, battery);
+      // mirror that into state so the button never shows a dead lock.
+      sentinel.addEventListener?.("release", () => {
+        if (wakeLockRef.current === sentinel) {
+          wakeLockRef.current = null;
+          setWakeLockActive(false);
+        }
+      });
+      return true;
     } catch {
-      setWakeLock(null);
+      wakeLockRef.current = null;
+      setWakeLockActive(false);
+      return false;
     }
+  }, []);
+
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (
+        document.visibilityState === "visible" &&
+        wakeLockWantedRef.current &&
+        !wakeLockRef.current
+      ) {
+        void acquireWakeLock();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () =>
+      document.removeEventListener("visibilitychange", handleVisibility);
+  }, [acquireWakeLock]);
+
+  useEffect(
+    () => () => {
+      const sentinel = wakeLockRef.current;
+      wakeLockRef.current = null;
+      if (sentinel && !sentinel.released) void sentinel.release();
+    },
+    [],
+  );
+
+  async function toggleWakeLock() {
+    if (wakeLockWantedRef.current) {
+      wakeLockWantedRef.current = false;
+      const sentinel = wakeLockRef.current;
+      wakeLockRef.current = null;
+      setWakeLockActive(false);
+      if (sentinel && !sentinel.released) await sentinel.release();
+      return;
+    }
+    wakeLockWantedRef.current = await acquireWakeLock();
   }
 
   async function toggleFullscreen() {
     if (document.fullscreenElement) {
-      await document.exitFullscreen();
+      await document.exitFullscreen().catch(() => {});
     } else {
-      await document.documentElement.requestFullscreen();
+      await document.documentElement.requestFullscreen().catch(() => {});
     }
   }
 
@@ -1161,12 +1242,15 @@ function DedicatedDisplay({
         </div>
         <div className="display-clock">
           <strong>{clock}</strong>
-          <small>{secondsLeft}s 后刷新</small>
+          <small>
+            <RefreshCountdown key={refreshSignal} seconds={REFRESH_SECONDS} />{" "}
+            后刷新
+          </small>
         </div>
         <nav className="display-actions" aria-label="小屏控制">
           <button
             type="button"
-            className={wakeLock && !wakeLock.released ? "is-active" : ""}
+            className={wakeLockActive ? "is-active" : ""}
             onClick={() => void toggleWakeLock()}
             title="防止屏幕自动休眠"
           >
@@ -1275,7 +1359,7 @@ export function UsageDashboard({
   const [historyTruncated, setHistoryTruncated] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
-  const [secondsLeft, setSecondsLeft] = useState(REFRESH_SECONDS);
+  const [refreshSignal, setRefreshSignal] = useState(0);
   const [locked, setLocked] = useState(false);
   const [viewCode, setViewCode] = useState("");
   const [unlocking, setUnlocking] = useState(false);
@@ -1286,26 +1370,43 @@ export function UsageDashboard({
   const [copyState, setCopyState] = useState<"idle" | "copied" | "error">(
     "idle",
   );
+  const loadSequenceRef = useRef(0);
+  const loadAbortRef = useRef<AbortController | null>(null);
+  const lastLoadedAtRef = useRef(0);
 
   const load = useCallback(async (manual = false) => {
+    // A slow older response must never overwrite a newer one: bump the
+    // sequence, abort the in-flight fetch, and ignore superseded results.
+    const sequence = ++loadSequenceRef.current;
+    loadAbortRef.current?.abort();
+    const controller = new AbortController();
+    loadAbortRef.current = controller;
     if (manual) setRefreshing(true);
     try {
       const apiBase = getApiBase();
       const isLocalCollector = apiBase.length > 0;
-      const usageResponse = await (
+      const [usageResponse, historyResponse] = await Promise.all([
         manual && isLocalCollector
-          ? fetch(`${apiBase}/api/refresh`, { method: "POST" })
-          : fetch(`${apiBase}/api/usage`, { cache: "no-store" })
-      );
+          ? fetch(`${apiBase}/api/refresh`, {
+              method: "POST",
+              signal: controller.signal,
+            })
+          : fetch(`${apiBase}/api/usage`, {
+              cache: "no-store",
+              signal: controller.signal,
+            }),
+        fetch(`${apiBase}/api/history?hours=168`, {
+          cache: "no-store",
+          signal: controller.signal,
+        }),
+      ]);
+      if (sequence !== loadSequenceRef.current) return;
       if (usageResponse.status === 401 && !isLocalCollector) {
         setLocked(true);
         setData(null);
         setError(null);
         return;
       }
-      const historyResponse = await fetch(`${apiBase}/api/history?hours=168`, {
-        cache: "no-store",
-      });
       if (!usageResponse.ok || !historyResponse.ok) {
         throw new Error("用量服务返回异常");
       }
@@ -1316,16 +1417,19 @@ export function UsageDashboard({
           truncated?: boolean;
         }>,
       ]);
+      if (sequence !== loadSequenceRef.current) return;
       setData(usagePayload);
       setHistory(historyPayload.points || []);
       setHistoryTruncated(historyPayload.truncated === true);
       setLocked(false);
       setError(null);
-      setSecondsLeft(REFRESH_SECONDS);
+      lastLoadedAtRef.current = Date.now();
+      setRefreshSignal((value) => value + 1);
     } catch {
+      if (sequence !== loadSequenceRef.current) return;
       setError("暂时无法连接用量采集服务，请稍后重试。");
     } finally {
-      setRefreshing(false);
+      if (sequence === loadSequenceRef.current) setRefreshing(false);
     }
   }, []);
 
@@ -1377,15 +1481,25 @@ export function UsageDashboard({
       void load();
     }, 0);
     const refreshTimer = window.setInterval(() => void load(), REFRESH_SECONDS * 1000);
-    const countdownTimer = window.setInterval(
-      () => setSecondsLeft((value) => (value <= 1 ? REFRESH_SECONDS : value - 1)),
-      1000,
-    );
     return () => {
       window.clearTimeout(initialTimer);
       window.clearInterval(refreshTimer);
-      window.clearInterval(countdownTimer);
     };
+  }, [load]);
+
+  useEffect(() => {
+    // A wall display or restored tab should show fresh data promptly.
+    const handleVisibility = () => {
+      if (
+        document.visibilityState === "visible" &&
+        Date.now() - lastLoadedAtRef.current > 30_000
+      ) {
+        void load();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () =>
+      document.removeEventListener("visibilitychange", handleVisibility);
   }, [load]);
 
   useEffect(() => {
@@ -1395,12 +1509,10 @@ export function UsageDashboard({
         target?.tagName === "INPUT" ||
         target?.tagName === "TEXTAREA" ||
         target?.isContentEditable;
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "r") {
-        event.preventDefault();
-        void load(true);
-        return;
-      }
       if (isTyping || event.metaKey || event.ctrlKey || event.altKey) return;
+      if (event.key.toLowerCase() === "r") {
+        void load(true);
+      }
       if (event.key.toLowerCase() === "d") {
         window.location.href = displayMode ? "/" : "/display";
       }
@@ -1441,17 +1553,7 @@ export function UsageDashboard({
           window,
         })),
       ) || [];
-    return resets
-      .filter(
-        (reset) =>
-          reset.resetsAt &&
-          new Date(reset.resetsAt).getTime() > generatedAt,
-      )
-      .sort(
-        (a, b) =>
-          new Date(a.resetsAt || 0).getTime() -
-          new Date(b.resetsAt || 0).getTime(),
-      )[0];
+    return pickNextReset(resets, generatedAt);
   }, [data?.generatedAt, history, visibleProviders]);
 
   function savePreferences(next: DashboardPreferences) {
@@ -1559,7 +1661,7 @@ export function UsageDashboard({
             providers={visibleProviders}
             history={history}
             error={error}
-            secondsLeft={secondsLeft}
+            refreshSignal={refreshSignal}
             warningThreshold={warningThreshold}
             onRefresh={() => void load(true)}
           />
@@ -1619,7 +1721,14 @@ export function UsageDashboard({
               disabled={refreshing}
             >
               <span aria-hidden="true">{refreshing ? "···" : "↻"}</span>
-              {refreshing ? "刷新中" : `${secondsLeft}s`}
+              {refreshing ? (
+                "刷新中"
+              ) : (
+                <RefreshCountdown
+                  key={refreshSignal}
+                  seconds={REFRESH_SECONDS}
+                />
+              )}
             </button>
           </div>
         </header>
@@ -1673,7 +1782,7 @@ export function UsageDashboard({
             <div className="control-dock__shortcuts">
               <span className="eyebrow">快捷键</span>
               <p>
-                <kbd>⌘ R</kbd> 刷新 <kbd>D</kbd> 打开外接屏{" "}
+                <kbd>R</kbd> 刷新 <kbd>D</kbd> 打开外接屏{" "}
                 <kbd>,</kbd> 打开管理
               </p>
               <small>显示偏好只保存在当前浏览器。</small>
