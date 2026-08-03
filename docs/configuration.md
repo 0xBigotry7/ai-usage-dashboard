@@ -246,3 +246,18 @@ and only credential-free normalized values are stored.
 | `VIEW_TOKEN` | hosted Worker | Code used to create a viewer session |
 | `USAGE_HUB_D1_DATABASE_ID` | build | D1 database UUID |
 | `USAGE_HUB_D1_DATABASE_NAME` | build | D1 database name |
+
+
+## Disabling specific providers
+
+`USAGE_HUB_DISABLE_PROVIDERS` pins providers off without listing everything
+else. It wins over both auto-detection and an explicit `USAGE_HUB_PROVIDERS`
+list. Typical use: a laptop whose Claude Code usage is already reported by
+another machine through cloud sync should not double-count its local logs:
+
+```bash
+USAGE_HUB_DISABLE_PROVIDERS=claude npm run local
+```
+
+The value is a comma-separated list of provider ids and can live in
+`~/.usage-hub/env`.

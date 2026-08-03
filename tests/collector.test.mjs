@@ -1115,3 +1115,28 @@ test("drops malformed remote balances instead of emitting a null numeric value",
 
   assert.equal(snapshot.providers[0].balance, null);
 });
+
+
+test("USAGE_HUB_DISABLE_PROVIDERS pins providers off across modes", async () => {
+  const { providerCatalog } = await import("../collector/providers/index.mjs");
+  const base = { CLAUDE_CONFIG_DIR: "/nonexistent-usage-hub-test" };
+
+  const auto = providerCatalog({ ...base, USAGE_HUB_DISABLE_PROVIDERS: "codex" });
+  assert.equal(auto.find((p) => p.id === "codex").enabled, false);
+  assert.equal(auto.find((p) => p.id === "kimi").enabled, true);
+
+  const explicit = providerCatalog({
+    ...base,
+    USAGE_HUB_PROVIDERS: "codex,kimi",
+    USAGE_HUB_DISABLE_PROVIDERS: "codex",
+  });
+  assert.equal(explicit.find((p) => p.id === "codex").enabled, false);
+  assert.equal(explicit.find((p) => p.id === "kimi").enabled, true);
+
+  const spaced = providerCatalog({
+    ...base,
+    USAGE_HUB_DISABLE_PROVIDERS: " Codex , CLAUDE ",
+  });
+  assert.equal(spaced.find((p) => p.id === "codex").enabled, false);
+  assert.equal(spaced.find((p) => p.id === "claude").enabled, false);
+});
