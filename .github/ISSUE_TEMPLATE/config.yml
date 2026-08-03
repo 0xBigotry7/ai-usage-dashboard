@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Provider development guide
+    url: https://github.com/0xBigotry7/ai-usage-dashboard/blob/main/docs/provider-development.md
+    about: Adapter contract, window schema, token-estimate methods, and testing checklist.
+  - name: Roadmap and design rules
+    url: https://github.com/0xBigotry7/ai-usage-dashboard/blob/main/docs/roadmap.md
+    about: Provider expansion candidates and the design rules every new adapter must pass.

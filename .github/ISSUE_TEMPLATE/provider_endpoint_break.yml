@@ -1,0 +1,82 @@
+name: Provider endpoint changed or broke
+description: A provider's endpoint or response shape changed and an adapter now shows wrong or missing data. This project polls some undocumented endpoints, so these reports are especially valuable.
+title: "[Provider]: "
+labels: ["provider", "bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Several adapters read undocumented endpoints or local log formats that
+        can change without notice. A precise report of the new response shape
+        (with values redacted) is usually enough to fix the adapter.
+  - type: dropdown
+    id: provider
+    attributes:
+      label: Provider
+      options:
+        - codex
+        - kimi
+        - openai-api
+        - openrouter
+        - deepseek
+        - github-copilot
+        - other (name it below)
+    validations:
+      required: true
+  - type: input
+    id: provider-other
+    attributes:
+      label: Provider name (if "other")
+      placeholder: "custom snapshot provider ..."
+    validations:
+      required: false
+  - type: input
+    id: since-when
+    attributes:
+      label: When did it break?
+      description: Approximate date or "after provider X shipped Y", if known.
+      placeholder: "2026-08-01, worked the day before"
+    validations:
+      required: false
+  - type: textarea
+    id: dashboard-shows
+    attributes:
+      label: What the dashboard shows
+      description: |
+        The provider card / menu bar state now: error text, stale marker,
+        missing window, zeroed tokens, wrong percentage, etc.
+    validations:
+      required: true
+  - type: textarea
+    id: response-shape
+    attributes:
+      label: Raw response shape (redacted), if known
+      description: |
+        The structure of the new response or log format, with every real value
+        replaced by a placeholder. Field names and nesting matter; the values
+        do not. Do NOT paste tokens, account IDs, hostnames, or real usage
+        numbers.
+      render: json
+      placeholder: |
+        {
+          "usage": {
+            "primary_window": { "used_percent": "<number>", "resets_at": "<iso>" },
+            "new_field_i_have_not_seen_before": "<string>"
+          }
+        }
+    validations:
+      required: false
+  - type: textarea
+    id: collector-log
+    attributes:
+      label: Collector log snippet (redacted)
+      render: text
+    validations:
+      required: false
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy check
+      options:
+        - label: I have replaced all real values (credentials, IDs, hostnames, usage numbers) with placeholders.
+          required: true
