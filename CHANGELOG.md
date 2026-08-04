@@ -11,6 +11,25 @@ the version links below resolve once their tags are pushed.
 
 ## [Unreleased]
 
+## [0.10.2] - 2026-08-04
+
+### Added
+
+- `npx ai-usage-hub configure <provider>` — the interactive key/capacity
+  setup now ships inside the CLI, so npx installs can configure Kimi, the
+  documented API adapters, and quota capacities without cloning the
+  repository. Secrets are still entered without echo and stored in
+  `~/.usage-hub/env` with mode `0600`, now written atomically.
+
+### Changed
+
+- An expired Codex login is reported precisely ("Codex login expired NN
+  hours ago — run any codex command on this machine to re-login") instead
+  of a generic authentication error. Automatic token refresh is deliberately
+  not implemented: Codex refresh tokens are single-use, so a second
+  refresher would invalidate the CLI's own login; the reasoning is
+  documented in the security notes.
+
 ### Added
 
 - `ai-usage-hub configure <provider>` CLI subcommand (`kimi`, `openai-api`,
@@ -261,6 +280,7 @@ the version links below resolve once their tags are pushed.
   dated in the future.
 
 [Unreleased]: https://github.com/0xBigotry7/ai-usage-dashboard/compare/v0.8.3...HEAD
+[0.10.2]: https://github.com/0xBigotry7/ai-usage-dashboard/releases/tag/v0.10.2
 [0.10.1]: https://github.com/0xBigotry7/ai-usage-dashboard/releases/tag/v0.10.1
 [0.10.0]: https://github.com/0xBigotry7/ai-usage-dashboard/releases/tag/v0.10.0
 [0.9.1]: https://github.com/0xBigotry7/ai-usage-dashboard/releases/tag/v0.9.1
