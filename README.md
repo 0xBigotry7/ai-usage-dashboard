@@ -78,12 +78,15 @@ npm run local
 Open <http://localhost:3000>. If you already use the Codex or Claude Code
 CLI on this machine, real data appears on the first load — no configuration.
 
-Optional providers take one command each:
+Optional providers take one command each — no clone needed:
 
 ```bash
-npm run configure:kimi                          # Kimi Code API key
-npm run configure:provider -- openai-api        # or openrouter / deepseek / github-copilot
+npx ai-usage-hub configure kimi                 # Kimi Code API key
+npx ai-usage-hub configure openai-api           # or openrouter / deepseek / github-copilot
 ```
+
+From a source checkout, `npm run configure:kimi` and
+`npm run configure:provider -- openai-api` run the same flows.
 
 ## macOS menu bar
 
@@ -149,7 +152,8 @@ configured weekly capacity`. There is no built-in capacity — without your
 calibration the dashboard shows the percentage alone:
 
 ```bash
-npm run configure:capacity -- kimi 10000000   # or codex; pass "clear" to remove
+npx ai-usage-hub configure capacity kimi 10000000   # or codex; pass "clear" to remove
+npm run configure:capacity -- kimi 10000000         # same, from a source checkout
 ```
 
 **Local CLI logs.** The Codex and Claude Code adapters read only token

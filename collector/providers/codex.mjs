@@ -11,6 +11,7 @@ import {
 } from "../shared.mjs";
 import { estimateWeeklyQuotaTokens } from "../quota-estimate.mjs";
 import { estimateCodexSessionLogTokenEstimates } from "../session-log-estimate.mjs";
+import { describeDurationAgo, jwtExpiresAtMs } from "../jwt.mjs";
 
 const CODEX = {
   id: "codex",
@@ -21,6 +22,9 @@ const CODEX = {
 };
 
 const DEFAULT_USAGE_URL = "https://chatgpt.com/backend-api/wham/usage";
+
+// Tolerate modest clock drift before declaring a stored login expired.
+const EXPIRY_CLOCK_SKEW_MS = 60_000;
 
 function formatPlan(plan) {
   if (!plan) return null;
@@ -103,6 +107,21 @@ export async function collectCodexUsage(env = process.env) {
       throw error;
     }
 
+    // The access token is a JWT; decode its exp locally so an expired login
+    // gets a precise, actionable message instead of a doomed network call.
+    // Deliberately no auto-refresh: Codex refresh tokens are single-use
+    // (rotating), so refreshing outside the CLI would invalidate the CLI's
+    // stored session (see collector/jwt.mjs and docs/security.md).
+    const expiresAtMs = jwtExpiresAtMs(accessToken);
+    if (expiresAtMs !== null && expiresAtMs + EXPIRY_CLOCK_SKEW_MS < Date.now()) {
+      const ago = describeDurationAgo(Date.now() - expiresAtMs);
+      const error = new Error(`Codex login expired ${ago}`);
+      error.status = 401;
+      error.authMessage =
+        `Codex login expired ${ago} — run any codex command on this machine to re-login.`;
+      throw error;
+    }
+
     const payload = await fetchJson(env.CODEX_USAGE_URL || DEFAULT_USAGE_URL, {
       headers: {
         Authorization: `Bearer ${accessToken}`,
@@ -126,8 +145,12 @@ export async function collectCodexUsage(env = process.env) {
     if (error?.code === "ENOENT") {
       error.status = 401;
     }
+    const descriptor =
+      typeof error?.authMessage === "string" && error.authMessage
+        ? { ...CODEX, authMessage: error.authMessage }
+        : CODEX;
     return {
-      ...providerError(CODEX, error, "Local Codex OAuth", updatedAt),
+      ...providerError(descriptor, error, "Local Codex OAuth", updatedAt),
       tokenUsage:
         logEstimates.find((estimate) => estimate.periodId === "today") ||
         logEstimates[0] ||
