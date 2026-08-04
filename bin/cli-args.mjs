@@ -8,7 +8,22 @@ import { parseArgs } from "node:util";
 
 export const MINIMUM_NODE_VERSION = "22.13.0";
 
-export const CLI_COMMANDS = ["start", "collector", "menubar"];
+export const CLI_COMMANDS = ["start", "collector", "menubar", "configure"];
+
+/**
+ * Configure targets accepted by `ai-usage-hub configure <target>`.
+ * Aliases (openai, copilot) are resolved by the shared configure flows.
+ */
+export const CONFIGURE_TARGETS = [
+  "kimi",
+  "openai-api",
+  "openai",
+  "openrouter",
+  "deepseek",
+  "github-copilot",
+  "copilot",
+  "capacity",
+];
 
 /**
  * Compare two dotted numeric versions ("22.13.0"). Returns a negative
@@ -32,8 +47,10 @@ export function meetsNodeRequirement(actual, minimum = MINIMUM_NODE_VERSION) {
 /**
  * Parse CLI argv (already stripped of the node binary and script path).
  *
- * Returns `{ command, help, version, error }` where `error` is a message
- * string when the input is invalid, and `command` defaults to "start".
+ * Returns `{ command, commandArgs, help, version, error }` where `error` is
+ * a message string when the input is invalid, and `command` defaults to
+ * "start". Only the `configure` command accepts extra positional arguments;
+ * they are returned untouched in `commandArgs`.
  */
 export function parseCliArgs(argv) {
   let parsed;
@@ -50,6 +67,7 @@ export function parseCliArgs(argv) {
   } catch (error) {
     return {
       command: null,
+      commandArgs: [],
       help: false,
       version: false,
       error: error instanceof Error ? error.message : String(error),
@@ -59,22 +77,24 @@ export function parseCliArgs(argv) {
   const { values, positionals } = parsed;
   const result = {
     command: "start",
+    commandArgs: [],
     help: Boolean(values.help),
     version: Boolean(values.version),
     error: null,
   };
-  if (positionals.length > 1) {
+  if (positionals.length === 0) return result;
+  if (!CLI_COMMANDS.includes(positionals[0])) {
+    result.command = null;
+    result.error = `Unknown command: ${positionals[0]}`;
+    return result;
+  }
+  result.command = positionals[0];
+  if (result.command === "configure") {
+    result.commandArgs = positionals.slice(1);
+  } else if (positionals.length > 1) {
     result.command = null;
     result.error = `Unexpected extra argument: ${positionals[1]}`;
     return result;
-  }
-  if (positionals.length === 1) {
-    if (!CLI_COMMANDS.includes(positionals[0])) {
-      result.command = null;
-      result.error = `Unknown command: ${positionals[0]}`;
-      return result;
-    }
-    result.command = positionals[0];
   }
   return result;
 }

@@ -15,8 +15,16 @@ These goals depend on keeping real values outside source-controlled files.
 ## Credential handling
 
 - Codex credentials are read from the existing CLI file and never modified.
-- Kimi keys are entered through a non-echoing prompt and stored in
-  `~/.usage-hub/env` with mode `0600`.
+  The collector decodes the access token's JWT `exp` claim locally to report
+  a precise "login expired" message; it never calls the OAuth refresh
+  endpoint. This is deliberate: the codex CLI's refresh tokens are single-use
+  (rotating — the auth service rejects a replayed refresh token with
+  `refresh_token_reused` and forces a fresh sign-in), and the CLI may keep
+  its canonical tokens in the OS keyring rather than `auth.json`. Refreshing
+  outside the CLI could therefore invalidate the user's real Codex session.
+- Optional provider keys (Kimi, OpenAI Admin, OpenRouter, DeepSeek, GitHub
+  Copilot) are entered through a non-echoing prompt and stored in
+  `~/.usage-hub/env` with mode `0600`, written via an atomic rename.
 - Hosted ingest and viewer credentials are separate.
 - `.env*`, `.openai/hosting.json`, private overlays, local databases, logs, and
   generated secret files are ignored by Git.

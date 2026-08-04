@@ -6,6 +6,8 @@
  *   start (default)  Run the local collector and the prebuilt web dashboard.
  *   collector        Run only the local collector.
  *   menubar          macOS: install and launch the bundled menu bar app.
+ *   configure        Save optional provider credentials or a token-capacity
+ *                    calibration to ~/.usage-hub/env.
  *
  * Dependency-free by design: node builtins only, plus the vinext production
  * server (a runtime dependency of this package) loaded lazily by
@@ -18,11 +20,17 @@ import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import {
+  CONFIGURE_TARGETS,
   MINIMUM_NODE_VERSION,
   compareVersions,
   meetsNodeRequirement,
   parseCliArgs,
 } from "./cli-args.mjs";
+import {
+  runConfigureCapacity,
+  runConfigureKimi,
+  runConfigureProvider,
+} from "./configure-lib.mjs";
 
 const packageRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -53,6 +61,12 @@ Commands:
   collector    Run only the local usage collector (HTTP API on port 4317).
   menubar      macOS only: install the bundled menu bar app into
                ~/Applications (first run or version upgrade) and launch it.
+  configure    Save optional provider credentials to ~/.usage-hub/env
+               (mode 0600, secrets prompted without echo):
+                 ai-usage-hub configure kimi
+                 ai-usage-hub configure openai-api   (or openrouter,
+                                                     deepseek, github-copilot)
+                 ai-usage-hub configure capacity <codex|kimi> <tokens|clear>
 
 Options:
   -h, --help       Show this help.
@@ -240,6 +254,38 @@ function runMenubar() {
   );
 }
 
+async function runConfigure(commandArgs) {
+  const [target, ...rest] = commandArgs;
+  const normalized = target?.trim().toLowerCase();
+  if (!normalized || !CONFIGURE_TARGETS.includes(normalized)) {
+    console.error(
+      "Usage: ai-usage-hub configure <kimi|openai-api|openrouter|deepseek|github-copilot>",
+    );
+    console.error(
+      "       ai-usage-hub configure capacity <codex|kimi> <weekly token capacity|clear>",
+    );
+    process.exit(2);
+  }
+  if (normalized === "kimi") {
+    process.exit(
+      await runConfigureKimi({ commandHint: '"ai-usage-hub configure kimi"' }),
+    );
+  }
+  if (normalized === "capacity") {
+    process.exit(
+      await runConfigureCapacity(rest[0], rest[1], {
+        usageCommand:
+          "ai-usage-hub configure capacity <codex|kimi> <weekly token capacity|clear>",
+      }),
+    );
+  }
+  process.exit(
+    await runConfigureProvider(normalized, {
+      exampleCommand: "ai-usage-hub configure openrouter",
+    }),
+  );
+}
+
 const args = parseCliArgs(process.argv.slice(2));
 if (args.error) {
   console.error(`ai-usage-hub: ${args.error}`);
@@ -261,4 +307,6 @@ if (args.command === "start") {
   runCollectorOnly();
 } else if (args.command === "menubar") {
   runMenubar();
+} else if (args.command === "configure") {
+  await runConfigure(args.commandArgs);
 }

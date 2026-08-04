@@ -11,6 +11,25 @@ the version links below resolve once their tags are pushed.
 
 ## [Unreleased]
 
+### Added
+
+- `ai-usage-hub configure <provider>` CLI subcommand (`kimi`, `openai-api`,
+  `openrouter`, `deepseek`, `github-copilot`, and `capacity`), so npx users
+  can save optional provider credentials without cloning the repository.
+  The `npm run configure:*` scripts now share the same packaged flows
+  (`bin/configure-lib.mjs`): non-echoing secret prompts, `~/.usage-hub/env`
+  with mode `0600`, atomic writes.
+
+### Changed
+
+- An expired Codex login now shows precisely how long ago the stored access
+  token expired ("Codex login expired 26 hours ago — run any codex command on
+  this machine to re-login") by decoding the JWT `exp` claim locally, and the
+  collector skips the doomed usage request. Auto-refresh stays deliberately
+  unimplemented: Codex refresh tokens are single-use (rotating), so a second
+  refresher outside the CLI could invalidate the CLI's session; see
+  docs/security.md.
+
 ## [0.10.1] - 2026-08-04
 
 ### Changed

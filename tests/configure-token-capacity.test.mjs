@@ -68,3 +68,40 @@ test("capacity helper preserves comments and unrelated credentials", async () =>
     await rm(directory, { recursive: true });
   }
 });
+
+test("the CLI configure capacity subcommand runs the same flow", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "usage-capacity-cli-test-"));
+  const envPath = join(directory, "custom.env");
+  const cliPath = fileURLToPath(new URL("../bin/cli.mjs", import.meta.url));
+  try {
+    await execFileAsync(
+      process.execPath,
+      [cliPath, "configure", "capacity", "codex", "15000000"],
+      {
+        env: {
+          ...process.env,
+          USAGE_HUB_ENV_FILE: envPath,
+        },
+      },
+    );
+    const configured = await readFile(envPath, "utf8");
+    assert.match(
+      configured,
+      /^USAGE_HUB_CODEX_WEEKLY_TOKEN_CAPACITY=15000000$/m,
+    );
+
+    // An unknown target exits non-zero with usage help.
+    await assert.rejects(
+      execFileAsync(process.execPath, [cliPath, "configure", "mystery"], {
+        env: { ...process.env, USAGE_HUB_ENV_FILE: envPath },
+      }),
+      (error) => {
+        assert.equal(error.code, 2);
+        assert.match(error.stderr, /Usage: ai-usage-hub configure/);
+        return true;
+      },
+    );
+  } finally {
+    await rm(directory, { recursive: true });
+  }
+});

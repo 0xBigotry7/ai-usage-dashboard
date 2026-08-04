@@ -12,6 +12,7 @@ import {
 test("no arguments defaults to the start command", () => {
   assert.deepEqual(parseCliArgs([]), {
     command: "start",
+    commandArgs: [],
     help: false,
     version: false,
     error: null,
@@ -23,7 +24,25 @@ test("every documented command parses", () => {
     const parsed = parseCliArgs([command]);
     assert.equal(parsed.command, command);
     assert.equal(parsed.error, null);
+    assert.deepEqual(parsed.commandArgs, []);
   }
+});
+
+test("configure keeps its extra positionals as commandArgs", () => {
+  const provider = parseCliArgs(["configure", "kimi"]);
+  assert.equal(provider.command, "configure");
+  assert.deepEqual(provider.commandArgs, ["kimi"]);
+  assert.equal(provider.error, null);
+
+  const capacity = parseCliArgs(["configure", "capacity", "codex", "15000000"]);
+  assert.equal(capacity.command, "configure");
+  assert.deepEqual(capacity.commandArgs, ["capacity", "codex", "15000000"]);
+  assert.equal(capacity.error, null);
+
+  const bare = parseCliArgs(["configure"]);
+  assert.equal(bare.command, "configure");
+  assert.deepEqual(bare.commandArgs, []);
+  assert.equal(bare.error, null);
 });
 
 test("--help and -h are recognized, alone and with a command", () => {
@@ -51,7 +70,7 @@ test("an unknown flag is an error", () => {
   assert.match(parsed.error, /--port/);
 });
 
-test("extra positional arguments are an error", () => {
+test("extra positional arguments are an error outside configure", () => {
   const parsed = parseCliArgs(["start", "now"]);
   assert.equal(parsed.command, null);
   assert.match(parsed.error, /Unexpected extra argument: now/);
