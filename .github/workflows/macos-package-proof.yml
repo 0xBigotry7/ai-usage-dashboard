@@ -20,6 +20,7 @@ jobs:
           cache: npm
 
       - run: npm ci
+      - run: swift test --package-path apps/macos-menu-bar
       - run: npm run build:menubar
 
       - name: Validate and package ad-hoc build

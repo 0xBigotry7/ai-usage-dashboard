@@ -43,4 +43,5 @@ jobs:
 
       - run: npm ci
       - run: npm test
+      - run: swift test --package-path apps/macos-menu-bar
       - run: npm run build:menubar

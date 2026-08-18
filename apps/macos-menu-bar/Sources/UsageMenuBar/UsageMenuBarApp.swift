@@ -1329,6 +1329,7 @@ private let minimumNodeVersion = NodeVersion(major: 22, minor: 13, patch: 0)
 private let collectorLogDisplayPath =
     "~/Library/Logs/AIUsageDashboard/collector.log"
 private let collectorLogMaxBytes = 5 * 1024 * 1024
+private let collectorHealthCheckInterval: TimeInterval = 15
 
 private struct NodeVersion: Comparable, CustomStringConvertible {
     let major: Int
@@ -1520,19 +1521,113 @@ private func openCollectorLog() -> FileHandle? {
     }
 }
 
+private struct CollectorHealthResponse: Decodable {
+    let ok: Bool
+}
+
+private struct CollectorLaunchFailure: LocalizedError {
+    let message: String
+
+    var errorDescription: String? { message }
+}
+
+private func bundledCollectorIsHealthy() async -> Bool {
+    guard let url = URL(string: "http://127.0.0.1:4317/healthz") else {
+        return false
+    }
+    var request = URLRequest(url: url)
+    request.cachePolicy = .reloadIgnoringLocalCacheData
+    request.timeoutInterval = 2
+    do {
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard
+            let httpResponse = response as? HTTPURLResponse,
+            (200..<300).contains(httpResponse.statusCode)
+        else {
+            return false
+        }
+        return (try? JSONDecoder().decode(
+            CollectorHealthResponse.self,
+            from: data
+        ).ok) == true
+    } catch {
+        return false
+    }
+}
+
+private func launchBundledCollector(
+    resourceURL: URL,
+    id: UUID,
+    onExit: @escaping CollectorExitHandler
+) throws -> Process {
+    let collectorURL = resourceURL
+        .appendingPathComponent("collector", isDirectory: true)
+        .appendingPathComponent("server.mjs")
+    let discovery = discoverNodeRuntime()
+    guard
+        let nodeURL = discovery.nodeURL,
+        let nodeVersion = discovery.nodeVersion
+    else {
+        let bestFound = discovery.bestRejectedVersion
+            .map { " (best found: \($0))" } ?? ""
+        let failure = "Node.js \(minimumNodeVersion.major)."
+            + "\(minimumNodeVersion.minor)+ not found\(bestFound). "
+            + "Install via Homebrew or set USAGE_HUB_NODE."
+        NSLog("Bundled collector not started: %@", failure)
+        throw CollectorLaunchFailure(message: failure)
+    }
+
+    let logHandle = openCollectorLog()
+    if let logHandle,
+       let banner = "[UsageMenuBar] \(Date()) starting collector with "
+           .appending("Node.js \(nodeVersion) at \(nodeURL.path)\n")
+           .data(using: .utf8) {
+        try? logHandle.write(contentsOf: banner)
+    }
+
+    let process = Process()
+    process.executableURL = nodeURL
+    process.arguments = [
+        "--enable-source-maps",
+        collectorURL.path,
+    ]
+    process.currentDirectoryURL = resourceURL
+    process.environment = ProcessInfo.processInfo.environment.merging([
+        "USAGE_HUB_HOST": "127.0.0.1",
+        "USAGE_HUB_PORT": "4317",
+    ]) { _, bundledValue in bundledValue }
+    process.standardOutput = logHandle ?? FileHandle.nullDevice
+    process.standardError = logHandle ?? FileHandle.nullDevice
+    process.terminationHandler = { child in
+        onExit(id, child.terminationStatus)
+    }
+    do {
+        try process.run()
+        return process
+    } catch {
+        NSLog(
+            "Bundled collector failed to start: %@",
+            String(describing: error)
+        )
+        throw CollectorLaunchFailure(
+            message: "Collector failed to start; see \(collectorLogDisplayPath)"
+        )
+    }
+}
+
 @MainActor
 private final class UsageMenuBarDelegate: NSObject, NSApplicationDelegate {
     private var store: UsageStore?
-    private var collectorProcess: Process?
+    private var collectorSupervisor: CollectorSupervisor?
+    private var collectorHealthTimer: Timer?
     private var statusItem: NSStatusItem?
     private var popover: NSPopover?
     private var statusUpdateCancellable: AnyCancellable?
-    private var isTerminating = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let store = UsageStore()
         self.store = store
-        startBundledCollector(reportingTo: store)
+        configureBundledCollector(reportingTo: store)
         let statusItemPositionKey =
             "NSStatusItem Preferred Position AIUsageDashboardUsage"
         if UserDefaults.standard.object(forKey: statusItemPositionKey) == nil {
@@ -1575,14 +1670,12 @@ private final class UsageMenuBarDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        isTerminating = true
-        collectorProcess?.terminationHandler = nil
-        if collectorProcess?.isRunning == true {
-            collectorProcess?.terminate()
-        }
+        collectorHealthTimer?.invalidate()
+        collectorHealthTimer = nil
+        collectorSupervisor?.stop()
     }
 
-    private func startBundledCollector(reportingTo store: UsageStore) {
+    private func configureBundledCollector(reportingTo store: UsageStore) {
         guard let resourceURL = Bundle.main.resourceURL else { return }
         let collectorURL = resourceURL
             .appendingPathComponent("collector", isDirectory: true)
@@ -1592,66 +1685,43 @@ private final class UsageMenuBarDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        let discovery = discoverNodeRuntime()
-        guard
-            let nodeURL = discovery.nodeURL,
-            let nodeVersion = discovery.nodeVersion
-        else {
-            let bestFound = discovery.bestRejectedVersion
-                .map { " (best found: \($0))" } ?? ""
-            let failure = "Node.js \(minimumNodeVersion.major)."
-                + "\(minimumNodeVersion.minor)+ not found\(bestFound). "
-                + "Install via Homebrew or set USAGE_HUB_NODE."
-            store.collectorFailure = failure
-            NSLog("Bundled collector not started: %@", failure)
-            return
+        let supervisor = CollectorSupervisor(
+            healthCheck: bundledCollectorIsHealthy,
+            launch: { id, onExit in
+                try launchBundledCollector(
+                    resourceURL: resourceURL,
+                    id: id,
+                    onExit: onExit
+                )
+            },
+            onFailure: { message in
+                let displayMessage = message.contains(collectorLogDisplayPath)
+                    ? message
+                    : "\(message); see \(collectorLogDisplayPath)"
+                store.collectorFailure = displayMessage
+                NSLog("Bundled collector unavailable: %@", message)
+            },
+            onRecovery: {
+                store.collectorFailure = nil
+                Task { @MainActor in
+                    await store.refresh()
+                }
+            }
+        )
+        collectorSupervisor = supervisor
+        Task { @MainActor in
+            await supervisor.start()
         }
-
-        let logHandle = openCollectorLog()
-        if let logHandle,
-           let banner = "[UsageMenuBar] \(Date()) starting collector with "
-               .appending("Node.js \(nodeVersion) at \(nodeURL.path)\n")
-               .data(using: .utf8) {
-            try? logHandle.write(contentsOf: banner)
-        }
-
-        let process = Process()
-        process.executableURL = nodeURL
-        process.arguments = [
-            "--enable-source-maps",
-            collectorURL.path,
-        ]
-        process.currentDirectoryURL = resourceURL
-        process.environment = ProcessInfo.processInfo.environment.merging([
-            "USAGE_HUB_HOST": "127.0.0.1",
-            "USAGE_HUB_PORT": "4317",
-        ]) { _, bundledValue in bundledValue }
-        process.standardOutput = logHandle ?? FileHandle.nullDevice
-        process.standardError = logHandle ?? FileHandle.nullDevice
-        process.terminationHandler = { [weak self] child in
-            let status = child.terminationStatus
+        // This is a loopback-only liveness probe. Provider polling remains
+        // governed by the collector's independent refresh/backoff policy.
+        collectorHealthTimer = Timer.scheduledTimer(
+            withTimeInterval: collectorHealthCheckInterval,
+            repeats: true
+        ) { [weak supervisor] _ in
             Task { @MainActor in
-                self?.noteCollectorExit(status: status)
+                await supervisor?.checkHealth()
             }
         }
-        do {
-            try process.run()
-            collectorProcess = process
-        } catch {
-            store.collectorFailure =
-                "Collector failed to start; see \(collectorLogDisplayPath)"
-            NSLog(
-                "Bundled collector failed to start: %@",
-                String(describing: error)
-            )
-        }
-    }
-
-    private func noteCollectorExit(status: Int32) {
-        guard !isTerminating else { return }
-        store?.collectorFailure =
-            "Collector exited (status \(status)); see \(collectorLogDisplayPath)"
-        NSLog("Bundled collector exited with status %d", status)
     }
 
     @objc
