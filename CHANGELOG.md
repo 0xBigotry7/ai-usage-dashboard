@@ -11,6 +11,13 @@ the version links below resolve once their tags are pushed.
 
 ## [Unreleased]
 
+### Fixed
+
+- The macOS menu bar app now supervises its bundled collector. Unexpected
+  child exits restart with bounded backoff, loopback health checks recover a
+  missing listener, and a healthy external collector on port 4317 is never
+  duplicated. App shutdown cancels pending restarts.
+
 ## [0.10.2] - 2026-08-04
 
 ### Added

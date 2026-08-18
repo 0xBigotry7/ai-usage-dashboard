@@ -6,10 +6,10 @@ credentials and does not query provider APIs directly.
 
 The menu bar label shows the primary quota percentage for up to three providers,
 for example `CX 74% · KM 48% · CL 13%`. Stale data is marked on the affected
-provider with `旧`, while a provider error is marked `异常`; there is no
+provider with `*`, while a provider error is marked `ERR`; there is no
 ambiguous global exclamation mark. Local providers use a ten-minute freshness
-threshold. Claude uses 45 minutes because its remote collector is intentionally
-polled less often.
+threshold. Claude uses 45 minutes so remote snapshots can refresh on a less
+aggressive schedule without being mislabeled as stale.
 On first launch the app gives its native `NSStatusItem` a stable saved position
 so a crowded macOS 26 menu bar does not park it underneath a MacBook camera
 housing. You can still Command-drag the label to any position you prefer.
@@ -59,6 +59,11 @@ the popover explains what to install; collector output is logged to
 still needs `npm run collector` in another terminal. Keep the app in
 `/Applications` before enabling **Launch at Login**. macOS may ask you to confirm
 it under **System Settings › General › Login Items**.
+
+The packaged app probes only its loopback `/healthz` endpoint every 15 seconds.
+If its owned collector exits, it restarts it with bounded backoff; a healthy
+collector already listening on port 4317 is adopted instead of duplicated.
+Provider request cadence and backoff remain controlled by the collector itself.
 
 The application requires macOS 14 or newer.
 
