@@ -224,6 +224,10 @@ private final class UsageStore: ObservableObject {
     }
 
     init() {
+        if ProcessInfo.processInfo.arguments.contains("--demo") {
+            loadDemo()
+            return
+        }
         notificationsEnabled = defaults.bool(
             forKey: PreferenceKey.notificationsEnabled
         )
@@ -258,7 +262,15 @@ private final class UsageStore: ObservableObject {
         }
     }
 
+    private func loadDemo() {
+        if let payload = try? JSONDecoder().decode(UsagePayload.self, from: menuBarDemoData()) {
+            providers = payload.providers
+            lastUpdated = Date()
+        }
+    }
+
     func refresh() async {
+        if ProcessInfo.processInfo.arguments.contains("--demo") { loadDemo(); return }
         guard !isRefreshing else { return }
         isRefreshing = true
         defer { isRefreshing = false }
@@ -478,6 +490,10 @@ private final class UsageStore: ObservableObject {
 
 private struct MenuBarPanel: View {
     @ObservedObject var store: UsageStore
+    @State private var page = 0
+    private var pageCount: Int { max(1, (store.providers.count + 5) / 6) }
+    private var currentPage: Int { min(page, pageCount - 1) }
+    private var visibleProviders: [UsageProvider] { Array(store.providers[menuPageRange(count: store.providers.count, page: currentPage)]) }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -487,28 +503,36 @@ private struct MenuBarPanel: View {
                 emptyState
                     .frame(height: 220)
             } else {
-                ProviderSummaryStrip(providers: Array(store.providers.prefix(3)))
-                    .padding(.horizontal, 12)
-                    .padding(.bottom, 10)
-
-                Divider()
-
-                ScrollView {
-                    LazyVStack(spacing: 10) {
-                        ForEach(store.providers) { provider in
-                            ProviderRow(provider: provider)
+                VStack(spacing: 10) {
+                    ForEach(0..<2) { row in
+                        HStack(spacing: 10) {
+                            ForEach(Array(visibleProviders.dropFirst(row * 3).prefix(3))) { provider in
+                                CompactQuotaCard(provider: provider)
+                            }
+                            ForEach(0..<max(0, 3 - visibleProviders.dropFirst(row * 3).prefix(3).count), id: \.self) { _ in
+                                Color.clear.frame(maxWidth: .infinity).frame(height: 185)
+                            }
                         }
                     }
-                    .padding(12)
+                    if store.providers.count > 6 {
+                        HStack {
+                            Button("Previous") { page = max(0, page - 1) }.disabled(currentPage == 0)
+                            Spacer()
+                            Text("Page \(currentPage + 1) of \(pageCount)").foregroundStyle(.secondary)
+                            Spacer()
+                            Button("Next") { page = min(pageCount - 1, currentPage + 1) }.disabled(currentPage + 1 >= pageCount)
+                        }.font(.system(size: 10))
+                    }
                 }
-                .frame(height: 430)
-                .scrollIndicators(.visible)
+                .padding(.horizontal, 14)
+                .padding(.bottom, 14)
             }
 
             Divider()
             footer
+                .disabled(ProcessInfo.processInfo.arguments.contains("--demo"))
         }
-        .frame(width: 410)
+        .frame(width: 640)
         .background(.ultraThinMaterial)
     }
 
@@ -554,6 +578,7 @@ private struct MenuBarPanel: View {
     }
 
     private var statusText: String {
+        if ProcessInfo.processInfo.arguments.contains("--demo") { return "Offline demo · synthetic data" }
         if let collectorFailure = store.activeCollectorFailure {
             return collectorFailure
         }
@@ -657,6 +682,104 @@ private struct MenuBarPanel: View {
         }
         .font(.system(size: 11))
         .padding(12)
+    }
+}
+
+private struct CompactQuotaCard: View {
+    let provider: UsageProvider
+    @State private var showDetails = false
+
+    private var title: String { provider.name }
+
+    private var accent: Color { Color(hex: provider.accent) ?? .green }
+
+    var body: some View {
+        Button { showDetails = true } label: {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 8) {
+                    ProviderLogo(provider: provider, size: 28)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(title).font(.system(size: 12, weight: .semibold)).lineLimit(1)
+                        Text(provider.plan ?? "Usage")
+                            .font(.system(size: 9)).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                    Spacer(minLength: 0)
+                    Circle().fill(providerHealthColor(provider)).frame(width: 6, height: 6)
+                }
+                HStack(alignment: .firstTextBaseline, spacing: 5) {
+                    Text(summaryValue)
+                        .font(.system(size: 32, weight: .semibold, design: .rounded))
+                        .monospacedDigit()
+                    Text(summaryLabel)
+                        .font(.system(size: 9)).foregroundStyle(.secondary)
+                }
+                ProgressView(value: min(100, max(0, provider.primaryWindow?.usedPercent ?? 0)), total: 100)
+                    .tint(accent).opacity(provider.primaryWindow == nil ? 0.15 : 1)
+                Text(provider.primaryWindow == nil ? "No quota window reported" : resetText(provider.primaryWindow?.resetsAt))
+                    .font(.system(size: 9)).foregroundStyle(.secondary).lineLimit(1)
+                Text(secondaryQuotaText)
+                    .font(.system(size: 9)).foregroundStyle(.secondary).lineLimit(1)
+                HStack(spacing: 3) {
+                    Text(provider.state != "ready" ? "Unavailable" : provider.isStale ? "Stale" : provider.updatedDate.map { freshnessText($0) } ?? "Waiting")
+                        .foregroundStyle(provider.isDegraded ? Color.orange : Color.secondary)
+                    Spacer(minLength: 0)
+                    Image(systemName: "chevron.right").foregroundStyle(.tertiary)
+                }
+                .font(.system(size: 9))
+            }
+            .padding(13)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(height: 185)
+            .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 15))
+            .overlay(RoundedRectangle(cornerRadius: 15).stroke(Color.primary.opacity(0.055), lineWidth: 1))
+            .contentShape(RoundedRectangle(cornerRadius: 15))
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(title), \(summaryValue) \(summaryLabel)")
+        .accessibilityHint("Open quota and token details")
+        .help("View \(title) quota windows, tokens, and collection details")
+        .popover(isPresented: $showDetails, arrowEdge: .trailing) {
+            VStack(spacing: 0) {
+                HStack {
+                    Text("Provider details").font(.system(size: 12, weight: .semibold))
+                    Spacer()
+                    Button("Done") { showDetails = false }.buttonStyle(.borderless)
+                }.padding(14)
+                Divider()
+                ScrollView { ProviderRow(provider: provider).padding(12) }
+                    .frame(maxHeight: 420)
+            }
+            .frame(width: 390)
+        }
+    }
+
+    private var secondaryQuotaText: String {
+        if let window = provider.windows.first(where: {
+            $0.id != provider.primaryWindow?.id && ($0.id.contains("five_hour") || $0.durationSeconds == 18_000) && $0.usedPercent != nil
+        }) {
+            return "5 hours \(formatPercent(window.usedPercent))"
+        }
+        if let token = provider.tokenUsage, let total = token.totalTokens {
+            return "\(menuTokenCaption(basis: token.basis, period: token.periodId))\(formatTokens(total)) tokens"
+        }
+        return "Click for details"
+    }
+
+    private var summaryValue: String {
+        if let window = provider.primaryWindow { return formatPercent(window.usedPercent) }
+        if let balance = provider.balance { return formatBalance(balance) }
+        if let tokens = provider.tokenUsage?.totalTokens { return formatTokens(tokens) }
+        return "—"
+    }
+
+    private var summaryLabel: String {
+        if let window = provider.primaryWindow {
+            return menuQuotaCaption(id: window.id, duration: window.durationSeconds)
+        }
+        if provider.balance != nil { return "balance" }
+        if provider.tokenUsage != nil { return "tokens" }
+        return "not provided"
     }
 }
 
@@ -1618,6 +1741,7 @@ private func launchBundledCollector(
 @MainActor
 private final class UsageMenuBarDelegate: NSObject, NSApplicationDelegate {
     private var store: UsageStore?
+    private var previewWindow: NSWindow?
     private var collectorSupervisor: CollectorSupervisor?
     private var collectorHealthTimer: Timer?
     private var statusItem: NSStatusItem?
@@ -1627,7 +1751,9 @@ private final class UsageMenuBarDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         let store = UsageStore()
         self.store = store
-        configureBundledCollector(reportingTo: store)
+        if !ProcessInfo.processInfo.arguments.contains("--demo") {
+            configureBundledCollector(reportingTo: store)
+        }
         let statusItemPositionKey =
             "NSStatusItem Preferred Position AIUsageDashboardUsage"
         if UserDefaults.standard.object(forKey: statusItemPositionKey) == nil {
@@ -1644,7 +1770,7 @@ private final class UsageMenuBarDelegate: NSObject, NSApplicationDelegate {
         let popover = NSPopover()
         popover.behavior = .transient
         popover.animates = false
-        popover.contentSize = NSSize(width: 410, height: 680)
+        popover.contentSize = NSSize(width: 640, height: 560)
         popover.contentViewController = NSHostingController(
             rootView: MenuBarPanel(store: store)
         )
@@ -1662,6 +1788,36 @@ private final class UsageMenuBarDelegate: NSObject, NSApplicationDelegate {
         self.statusItem = statusItem
         self.popover = popover
         updateStatusItem()
+        if ProcessInfo.processInfo.arguments.contains("--demo") {
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 560), styleMask: [.titled, .closable], backing: .buffered, defer: false)
+            window.title = "AI Usage Dashboard — Demo"
+            window.contentViewController = NSHostingController(rootView: MenuBarPanel(store: store))
+            window.center()
+            window.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            previewWindow = window
+            if let flag = ProcessInfo.processInfo.arguments.firstIndex(of: "--demo-export"),
+               ProcessInfo.processInfo.arguments.indices.contains(flag + 1) {
+                let path = ProcessInfo.processInfo.arguments[flag + 1]
+                DispatchQueue.main.async {
+                    window.contentView?.layoutSubtreeIfNeeded()
+                    guard let view = window.contentView,
+                          let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else {
+                        NSLog("Could not render demo preview")
+                        exit(1)
+                    }
+                    view.cacheDisplay(in: view.bounds, to: bitmap)
+                    do {
+                        guard let png = bitmap.representation(using: .png, properties: [:]) else { throw CocoaError(.fileWriteUnknown) }
+                        try png.write(to: URL(fileURLWithPath: path), options: .atomic)
+                    } catch {
+                        NSLog("Demo export failed: %@", String(describing: error))
+                        exit(1)
+                    }
+                    NSApp.terminate(nil)
+                }
+            }
+        }
         statusUpdateCancellable = store.objectWillChange.sink { [weak self] _ in
             DispatchQueue.main.async {
                 self?.updateStatusItem()
@@ -1746,11 +1902,38 @@ private final class UsageMenuBarDelegate: NSObject, NSApplicationDelegate {
 
     private func updateStatusItem() {
         guard let store, let button = statusItem?.button else { return }
-        button.image = nil
-        button.imagePosition = .noImage
-        button.title = store.menuTitle
-        button.toolTip = "AI usage: \(store.menuTitle)"
-        button.setAccessibilityLabel("AI usage: \(store.menuTitle)")
+        let font = NSFont.monospacedDigitSystemFont(ofSize: 12.5, weight: .semibold)
+        let values = store.providers.prefix(6).map { provider -> (UsageProvider, String) in
+            let value = provider.state == "ready"
+                ? provider.primaryWindow?.usedPercent.map { "\(Int($0.rounded()))%" } ?? "—"
+                : "—"
+            return (provider, value + (provider.isStale ? "*" : ""))
+        }
+        let width = values.reduce(CGFloat(8)) { total, item in
+            total + 18 + 4 + (item.1 as NSString).size(withAttributes: [.font: font]).width + 10
+        }
+        let image = NSImage(size: NSSize(width: max(width, 36), height: 24))
+        button.effectiveAppearance.performAsCurrentDrawingAppearance {
+            image.lockFocus()
+            var x: CGFloat = 4
+            if values.isEmpty {
+                ("AI" as NSString).draw(at: NSPoint(x: x, y: 4), withAttributes: [.font: font, .foregroundColor: NSColor.labelColor])
+            }
+            for (provider, value) in values {
+                (BrandAssets.image(for: provider.id) ?? NSImage(systemSymbolName: "chart.bar.fill", accessibilityDescription: provider.name))?.draw(in: NSRect(x: x, y: 3, width: 18, height: 18))
+                x += 22
+                let color: NSColor = provider.state != "ready" ? .systemRed : provider.isStale ? .systemOrange : .labelColor
+                (value as NSString).draw(at: NSPoint(x: x, y: 4), withAttributes: [.font: font, .foregroundColor: color])
+                x += (value as NSString).size(withAttributes: [.font: font]).width + 10
+            }
+            image.unlockFocus()
+        }
+        image.isTemplate = false
+        button.attributedTitle = NSAttributedString(string: "")
+        button.image = image
+        button.imagePosition = .imageOnly
+        button.toolTip = store.providers.map { "\($0.name): \(formatPercent($0.primaryWindow?.usedPercent))\($0.isStale ? " (stale)" : "")" }.joined(separator: "\n")
+        button.setAccessibilityLabel(button.toolTip ?? store.menuTitle)
         statusItem?.length = NSStatusItem.variableLength
     }
 }

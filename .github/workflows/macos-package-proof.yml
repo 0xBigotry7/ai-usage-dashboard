@@ -21,6 +21,12 @@ jobs:
 
       - run: npm ci
       - run: swift test --package-path apps/macos-menu-bar
+      - name: Check compact menu presentation
+        run: |
+          swiftc apps/macos-menu-bar/Sources/UsageMenuBar/MenuPresentation.swift \
+            apps/macos-menu-bar/Sources/UsageMenuBar/DemoData.swift \
+            tests/menu-presentation-check.swift -o "$RUNNER_TEMP/menu-presentation-check"
+          "$RUNNER_TEMP/menu-presentation-check"
       - run: npm run build:menubar
 
       - name: Validate and package ad-hoc build

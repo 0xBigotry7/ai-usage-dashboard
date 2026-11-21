@@ -8,7 +8,9 @@
 **一眼看清你烧掉的每个 AI 订阅：配额窗口、重置倒计时、余额、真实 token
 用量 —— 全部在本机采集，按你的方式呈现。**
 
-<img src="public/og.png" alt="AI Usage Dashboard 展示各服务商配额窗口、余额与 token 估算" width="1731">
+<img src="docs/images/menu-bar-overview.png" alt="原生六宫格用量面板：配额、Token 与余额示例" width="640">
+
+*截图使用离线合成演示数据；实际可用指标取决于各平台适配器。*
 
 [English](README.md)
 
@@ -17,7 +19,7 @@
 
 - **浏览器仪表盘** —— 配额环、重置倒计时、余额、分层 token 视图、历史趋势；
 - **常亮小屏** —— 专为 480×320 / 800×480 副屏设计的 `/display` 视图；
-- **macOS 菜单栏** —— 原生常驻应用，让最重要的三个服务商全天可见。
+- **macOS 菜单栏** —— 单排彩色图标与百分比，展开六宫格一屏查看，点击卡片按需看详情。
 
 开箱即支持 **OpenAI Codex、Claude Code、Kimi Code、OpenAI API、OpenRouter、
 DeepSeek、GitHub Copilot**，并提供文档化的快照协议接入其他任何来源。
@@ -72,13 +74,22 @@ npm run build:menubar
 open "dist/AI Usage Dashboard Menu Bar.app"
 ```
 
-应用自带并启动本地采集器，菜单栏常驻最多三个服务商，弹层里有每个配额
-窗口、重置时间和今日观测 token。机器需有 Node.js 22.13+（Homebrew、
+应用自带并启动本地采集器，菜单栏用单排图标与百分比展示最多六个平台。
+展开后以 3×2 卡片展示用量、重置时间和数据新鲜度，不再滚动长列表；点击
+卡片查看完整额度窗口与 Token 明细。超过六个平台时可以翻页，不会丢失。
+只提供余额或 Token 的平台会展示对应指标，不伪造百分比额度。
+机器需有 Node.js 22.13+（Homebrew、
 nvm、mise、asdf 安装的都能自动发现；`USAGE_HUB_NODE` 可手动指定）。
 把应用拖进 `/Applications` 并开启 **Launch at Login** 即可常驻。
 
 本地构建为 ad-hoc 签名，适合个人使用；对外分发前请阅读
 [macOS 打包与签名](docs/macos-release.md)。
+
+本地构建使用不需要付费 Apple Developer 会员。
+运行 `npm run menubar -- --demo` 可以离线预览新界面；运行
+`node scripts/capture-menu-bar-preview.mjs` 可重新生成 README 的原生截图。
+演示模式只使用合成数据，不启动采集器，不读取会话文件，也不调用平台接口或远程机器。
+详见[菜单栏使用指南](apps/macos-menu-bar/README.md)。
 
 ---
 

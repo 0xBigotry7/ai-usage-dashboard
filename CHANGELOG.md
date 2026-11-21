@@ -11,6 +11,16 @@ the version links below resolve once their tags are pushed.
 
 ## [Unreleased]
 
+### Added
+
+- Native macOS six-card overview with no main scrolling list, per-card quota,
+  reset and freshness information, and on-demand token/window details.
+- Single-row original-color menu-bar icons with percentages, plus paging for
+  more than six configured providers in the overview.
+- Isolated `--demo` mode, reproducible synthetic native screenshot, bilingual
+  documentation, and presentation regression checks. No private collectors,
+  remote-host configuration, or credentials are included.
+
 ### Fixed
 
 - The macOS menu bar app now supervises its bundled collector. Unexpected
