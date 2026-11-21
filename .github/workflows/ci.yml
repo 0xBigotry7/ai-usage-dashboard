@@ -27,6 +27,7 @@ jobs:
           cache: npm
 
       - run: npm ci
+      - run: npm run audit:security
       - run: npm run check
 
   macos-menu-bar:
@@ -42,6 +43,7 @@ jobs:
           cache: npm
 
       - run: npm ci
+      - run: npm run audit:security
       - run: npm test
       - run: swift test --package-path apps/macos-menu-bar
       - name: Check compact menu presentation

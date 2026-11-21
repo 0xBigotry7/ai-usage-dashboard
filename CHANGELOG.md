@@ -23,6 +23,13 @@ the version links below resolve once their tags are pushed.
 
 ### Fixed
 
+- Upgrade vulnerable web/build dependencies: Next.js 16.4.6, aligned React/RSC
+  19.3.1, vinext 1.4.6, and patched transitive tooling. Update the existing
+  sharp override and constrain Satori's fflate dependency to the compatible
+  0.7.5 security patch. Add a high/critical audit gate to CI. No collector,
+  provider credentials, private deployment, or installed app changes are part
+  of this dependency update.
+
 - The macOS menu bar app now supervises its bundled collector. Unexpected
   child exits restart with bounded backoff, loopback health checks recover a
   missing listener, and a healthy external collector on port 4317 is never
