@@ -1,5 +1,21 @@
 # Architecture
 
+## Native compact overview
+
+The macOS companion is a presentation client of the existing loopback usage
+schema. A six-card page renders quota percentages, balances, or token totals
+without changing adapter behavior. More providers are paginated; clicking a
+card opens the original detailed window/token view. The status item renders
+brand assets plus percentages into one native image, with accessible names and
+freshness labels. Neither surface stores credentials or initiates provider calls.
+
+`--demo` selects synthetic data before the collector supervisor is started.
+Its dedicated preview window can export only its own rendered content, so
+documentation captures cannot accidentally include live accounts or desktop
+content. `MenuPresentation.swift` contains tested paging and metric-label rules.
+Provider-specific deployment scripts and remote-machine configuration are not
+part of the interface layer or demo fixture.
+
 AI Usage Dashboard separates collection, normalization, storage, and display.
 Provider credentials stay with the process that owns them.
 

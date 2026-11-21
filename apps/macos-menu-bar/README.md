@@ -4,17 +4,24 @@ The menu bar companion reads the local collector at
 `http://127.0.0.1:4317/api/usage` every 60 seconds. It stores no provider
 credentials and does not query provider APIs directly.
 
-The menu bar label shows the primary quota percentage for up to three providers,
-for example `CX 74% · KM 48% · CL 13%`. Stale data is marked on the affected
-provider with `*`, while a provider error is marked `ERR`; there is no
-ambiguous global exclamation mark. Local providers use a ten-minute freshness
-threshold. Claude uses 45 minutes so remote snapshots can refresh on a less
-aggressive schedule without being mislabeled as stale.
+The menu bar shows original-color provider icons and primary quota percentages
+in one horizontal row (up to six providers). Stale values get `*` and an orange
+label; failed providers show a red dash, not a fabricated zero. Hover for full
+provider names and status. Local providers use a ten-minute freshness threshold;
+Claude uses 45 minutes. This is a presentation threshold, not a provider polling
+interval. Collection behavior has not changed with the new interface.
 On first launch the app gives its native `NSStatusItem` a stable saved position
 so a crowded macOS 26 menu bar does not park it underneath a MacBook camera
 housing. You can still Command-drag the label to any position you prefer.
 
-Open the popover to see:
+The expanded panel is a 640-point-wide, 3×2 card overview. All six cards and
+settings fit together without a main scrolling list. Each card shows the
+primary usage metric, reset time, and freshness. Where supplied, it also shows
+a secondary five-hour window or a correctly labeled token total. Token-only
+and balance-only adapters display those metrics rather than inventing quota
+percentages. More than six providers use Previous/Next pages, in collector order.
+
+Click a card for the secondary detail popover, which preserves:
 
 - every quota window and reset time returned by each provider;
 - projected period-end usage and an estimated exhaustion time when reset and
@@ -66,6 +73,33 @@ collector already listening on port 4317 is adopted instead of duplicated.
 Provider request cadence and backoff remain controlled by the collector itself.
 
 The application requires macOS 14 or newer.
+
+## Offline demo and documentation screenshots
+
+```bash
+npm run menubar -- --demo
+node scripts/capture-menu-bar-preview.mjs
+```
+
+`--demo` is handled before collector startup and before session or API access.
+It displays six synthetic providers in a dedicated preview window and disables
+account settings. The capture script renders only the app's own demo content
+to `docs/images/menu-bar-overview.png`; it does not capture the desktop.
+Numbers are illustrative, not provider plan limits. In particular, this does
+not add an official Claude quota endpoint or new proprietary adapters.
+
+The public build contains no preconfigured remote host, SSH command, private
+snapshot path, account cookie, or credential. Custom snapshot integration stays
+an explicit user configuration; the UI does not require a remote machine.
+
+Standalone presentation checks (no XCTest dependency):
+
+```bash
+swiftc apps/macos-menu-bar/Sources/UsageMenuBar/MenuPresentation.swift \
+  apps/macos-menu-bar/Sources/UsageMenuBar/DemoData.swift \
+  tests/menu-presentation-check.swift -o /tmp/menu-presentation-check
+/tmp/menu-presentation-check
+```
 
 If the label is hidden, open **System Settings › Menu Bar › Allow in the Menu
 Bar** and enable **AI Usage Dashboard Menu Bar**.

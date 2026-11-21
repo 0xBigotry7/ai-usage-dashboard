@@ -8,7 +8,9 @@
 **One glance at every AI subscription you burn: quota windows, reset timers,
 balances, and real token counts — collected locally, shown your way.**
 
-<img src="public/og.png" alt="AI Usage Dashboard showing provider quota windows, balances, and token estimates" width="1731">
+<img src="docs/images/menu-bar-overview.png" alt="Native six-card overview with quota, token and balance examples" width="640">
+
+*Native macOS preview with synthetic demo data. Available metrics depend on each adapter.*
 
 [中文说明](README.zh-CN.md)
 
@@ -19,8 +21,8 @@ them all on your own machine and shows one honest picture on three surfaces:
   token views, history trends;
 - **Always-on display** — a `/display` view built for 480×320 / 800×480
   screens next to your monitor;
-- **macOS menu bar** — a native companion that keeps your top three
-  providers visible all day.
+- **macOS menu bar** — colorful provider icons and percentages in one row;
+  a six-card overview without a scrolling list, with details on demand.
 
 Out of the box it understands **OpenAI Codex, Claude Code, Kimi Code,
 OpenAI API, OpenRouter, DeepSeek, and GitHub Copilot**, plus a documented
@@ -95,14 +97,24 @@ npm run build:menubar
 open "dist/AI Usage Dashboard Menu Bar.app"
 ```
 
-The app starts its own local collector and shows up to three providers in
-the menu bar, with every quota window, reset time, and today's observed
-tokens in its popover. Requires Node.js 22.13+ on the machine (Homebrew,
+The app starts its own local collector and shows up to six provider icons
+and quota percentages in a single menu-bar row. The expanded 3×2 overview
+shows usage, reset times, and per-provider freshness without scrolling.
+Click a card for all quota windows and token details; more than six configured
+providers remain accessible through pages. Balance-only and token-only adapters
+are not presented as invented percentage quotas. Requires Node.js 22.13+ (Homebrew,
 nvm, mise, and asdf installs are all discovered; `USAGE_HUB_NODE` overrides).
 Drag the app to `/Applications` and enable **Launch at Login** to keep it.
 
 Builds are ad-hoc signed for personal use; see
 [macOS packaging and signing](docs/macos-release.md) before distributing.
+
+No Apple Developer membership is required to build and use it locally.
+For a credential-free preview, run `npm run menubar -- --demo`.
+To regenerate the native screenshot on macOS, run
+`node scripts/capture-menu-bar-preview.mjs`.
+Demo mode uses synthetic data only: no collector, session files, provider API,
+or remote machine is contacted. See the [menu bar guide](apps/macos-menu-bar/README.md).
 
 ---
 
