@@ -48,13 +48,14 @@
     "configure:cloud": "node scripts/configure-cloud-sync.mjs",
     "generate:cloud-secrets": "node scripts/generate-cloud-secrets.mjs",
     "copy:view-code": "node scripts/copy-view-code.mjs",
-    "test": "node --experimental-strip-types --test tests/collector.test.mjs tests/session-log-estimate.test.mjs tests/claude-session-log.test.mjs tests/provider-http.test.mjs tests/configure-token-capacity.test.mjs tests/cli-args.test.mjs tests/codex-jwt.test.mjs && npm run build && node --test tests/rendered-html.test.mjs",
+    "audit:security": "npm audit --audit-level=high",
+    "test": "node --experimental-strip-types --test tests/collector.test.mjs tests/session-log-estimate.test.mjs tests/claude-session-log.test.mjs tests/provider-http.test.mjs tests/configure-token-capacity.test.mjs tests/cli-args.test.mjs tests/codex-jwt.test.mjs && npm run build && node --test tests/rendered-html.test.mjs tests/web-runtime.test.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "typecheck": "tsc --noEmit",
     "check": "npm run lint && npm run typecheck && npm test"
   },
   "dependencies": {
-    "vinext": "0.2.1"
+    "vinext": "1.4.6"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "^1.49.1",
@@ -64,14 +65,14 @@
     "@types/react": "19.2.18",
     "@types/react-dom": "19.2.4",
     "@vitejs/plugin-react": "6.0.5",
-    "@vitejs/plugin-rsc": "0.5.32",
+    "@vitejs/plugin-rsc": "0.5.39",
     "drizzle-orm": "0.45.2",
     "eslint": "9.39.4",
-    "eslint-config-next": "16.2.12",
-    "next": "16.2.12",
-    "react": "19.2.8",
-    "react-dom": "19.2.8",
-    "react-server-dom-webpack": "19.2.8",
+    "eslint-config-next": "16.4.6",
+    "next": "16.4.6",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "react-server-dom-webpack": "19.3.1",
     "tailwindcss": "4.3.3",
     "typescript": "5.9.3",
     "vite": "^8.2.0",
@@ -79,7 +80,10 @@
   },
   "overrides": {
     "postcss": "8.5.23",
-    "sharp": "0.35.0"
+    "sharp": "0.35.5",
+    "satori": {
+      "fflate": "0.7.5"
+    }
   },
   "type": "module"
 }

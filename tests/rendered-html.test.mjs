@@ -94,10 +94,16 @@ test("build contains the dashboard, dedicated display, brands, and protected rou
       .every((file) => brandAssets.includes(file)),
   );
   assert.ok(routes.every((route) => /is(Viewer|Ingest)Authorized/.test(route)));
-  assert.ok(
-    clientAssets.some((file) =>
-      String(file).split("/").pop().startsWith("usage-dashboard-"),
-    ),
-  );
+  // Current vinext uses hash-only filenames. Verify the source-to-chunk
+  // mapping and actual bundle content, not a cosmetic filename convention.
+  const manifest = JSON.parse(await readFile(
+    new URL("../dist/client/.vite/manifest.json", import.meta.url), "utf8",
+  ));
+  const dashboardChunk = Object.values(manifest).find((entry) => entry.name === "usage-dashboard");
+  assert.ok(dashboardChunk, "dashboard has a client manifest entry");
+  assert.match(dashboardChunk.file, /^(?:_next|assets)\/[\w/.-]+\.js$/);
+  const builtDashboard = await readFile(new URL(`../dist/client/${dashboardChunk.file}`, import.meta.url), "utf8");
+  assert.match(builtDashboard, /Tokens recorded today/);
+  assert.ok(clientAssets.some((file) => String(file).endsWith(".js")));
   assert.doesNotMatch(dashboard, /codex-preview|react-loading-skeleton/);
 });
