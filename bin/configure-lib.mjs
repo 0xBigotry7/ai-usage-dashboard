@@ -28,6 +28,7 @@ import { stdin, stdout } from "node:process";
 
 export const PROVIDER_ALIASES = {
   openai: "openai-api",
+  opencode: "opencode-go",
   copilot: "github-copilot",
 };
 
@@ -58,6 +59,16 @@ export const PROVIDER_CONFIGS = {
       {
         key: "DEEPSEEK_API_KEY",
         label: "DeepSeek API Key",
+        secret: true,
+      },
+    ],
+  },
+  "opencode-go": {
+    name: "OpenCode Go",
+    fields: [
+      {
+        key: "OPENCODE_GO_API_KEY",
+        label: "OpenCode Go API Key",
         secret: true,
       },
     ],
@@ -245,7 +256,7 @@ export async function runConfigureProvider(
 
   if (!config) {
     console.error(
-      "Choose a provider: openai-api, openrouter, deepseek, or github-copilot.",
+      "Choose a provider: openai-api, openrouter, deepseek, opencode-go, or github-copilot.",
     );
     console.error(`Example: ${exampleCommand}`);
     return 1;

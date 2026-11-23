@@ -93,6 +93,8 @@ export function UsageDashboard({
             <>
               <Topbar
                 summary={summary}
+                shortcuts={data?.desktopShortcuts}
+                canUpdateMuse={data?.providers.some((provider) => provider.id === "muse" && provider.sourceKind === "manual") ?? false}
                 controlsOpen={controlsOpen}
                 onToggleControls={toggleControls}
                 refreshing={refreshing}

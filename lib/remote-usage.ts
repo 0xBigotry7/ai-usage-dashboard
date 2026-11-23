@@ -3,11 +3,13 @@ import pkg from "../package.json" with { type: "json" };
 const PROVIDER_ORDER = [
   "codex",
   "claude",
+  "claude-fable",
   "kimi",
   "openai-api",
   "openrouter",
   "github-copilot",
   "deepseek",
+  "opencode-go",
 ];
 const PROVIDER_ID_PATTERN = /^[a-z0-9][a-z0-9_-]{0,31}$/;
 const PROVIDER_STATES = new Set([
@@ -218,7 +220,36 @@ function sanitizeWindow(value: unknown) {
     limit: boundedNumber(input.limit, 0, Number.MAX_SAFE_INTEGER),
     remaining: boundedNumber(input.remaining, 0, Number.MAX_SAFE_INTEGER),
     resetsAt: safeIso(input.resetsAt),
+    ...(typeof input.resetDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(input.resetDate)
+      && safeIso(input.resetDate) ? { resetDate: input.resetDate } : {}),
   };
+}
+
+function sanitizeUsageDetails(value: unknown) {
+  return (Array.isArray(value) ? value : []).slice(0, 8).flatMap((detail) => {
+    const label = boundedString(detail?.label, 55);
+    const value = boundedString(detail?.value, 80);
+    return label && value ? [{ label, value }] : [];
+  });
+}
+
+function sanitizeReadings(value: unknown) {
+  return (Array.isArray(value) ? value : []).slice(0, 3).flatMap((reading) => {
+    const id = boundedString(reading?.id, 20);
+    const name = boundedString(reading?.name, 40);
+    const scope = boundedString(reading?.scope, 55);
+    if (!id || !PROVIDER_ID_PATTERN.test(id) || !name || !scope) return [];
+    const rawWindows: unknown[] = Array.isArray(reading.windows) ? reading.windows : [];
+    const windows = rawWindows.slice(0, 8)
+      .map(sanitizeWindow)
+      .filter((window): window is NonNullable<typeof window> => Boolean(window));
+    return [{
+      id, name, scope, windows,
+      updatedAt: safeIso(reading.updatedAt),
+      details: sanitizeUsageDetails(reading.details),
+      message: boundedString(reading.message, 240),
+    }];
+  });
 }
 
 function sanitizeProvider(value: unknown) {
@@ -251,6 +282,7 @@ function sanitizeProvider(value: unknown) {
           label: boundedString(balanceInput.label, 40) || "Balance",
           value: balanceValue,
           unit: boundedString(balanceInput.unit, 20) || "",
+          ...(balanceInput.approximate === true ? { approximate: true } : {}),
         }
       : null;
 
@@ -270,6 +302,8 @@ function sanitizeProvider(value: unknown) {
     updatedAt: safeIso(input.updatedAt) || new Date().toISOString(),
     windows,
     balance,
+    usageDetails: sanitizeUsageDetails(input.usageDetails),
+    ...(Array.isArray(input.readings) ? { readings: sanitizeReadings(input.readings) } : {}),
     message: boundedString(input.message, 240),
     tokenUsage: sanitizeTokenUsage(input.tokenUsage),
     tokenEstimates: (Array.isArray(input.tokenEstimates)

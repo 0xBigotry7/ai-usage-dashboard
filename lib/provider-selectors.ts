@@ -14,6 +14,15 @@ const PROVIDER_STALE_AFTER_MS = 10 * 60 * 1000;
 const CLAUDE_STALE_AFTER_MS = 45 * 60 * 1000;
 
 export function isProviderStale(provider: Provider) {
+  if (provider.sourceKind === "manual") {
+    const window = getPrimaryWindow(provider);
+    if (window?.resetDate) {
+      const dayAfter = new Date(`${window.resetDate}T00:00:00`);
+      dayAfter.setDate(dayAfter.getDate() + 1);
+      return dayAfter.getTime() <= Date.now();
+    }
+    return window?.resetsAt ? Date.parse(window.resetsAt) <= Date.now() : false;
+  }
   const updatedAt = new Date(provider.updatedAt).getTime();
   const staleAfterMs =
     provider.id === "claude"
@@ -29,9 +38,9 @@ export function providerStateLabel(provider: Provider) {
   if (isProviderStale(provider)) return "Data stale";
   switch (provider.state) {
     case "ready":
-      return "Live";
+      return provider.sourceKind === "manual" ? "Manual snapshot" : "Live";
     case "needs_configuration":
-      return "Needs setup";
+      return provider.sourceKind === "manual" ? "Awaiting entry" : "Needs setup";
     case "auth_error":
       return "Sign-in required";
     default:
@@ -166,7 +175,7 @@ function resolveReset(
   if (window.resetsAt) {
     return { resetsAt: window.resetsAt, estimated: false };
   }
-  if (window.durationSeconds === null) {
+  if (providerId === "antigravity" || window.resetDate || window.durationSeconds === null) {
     return NO_RESET;
   }
   const resetsAt = estimateNextResetAt({

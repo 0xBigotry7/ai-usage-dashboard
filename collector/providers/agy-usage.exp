@@ -1,0 +1,78 @@
+# The TUI handles sign-in. Only the documented /usage command is submitted.
+log_user 0
+match_max 65536
+lassign $argv binary settings snapshot
+spawn -noecho $binary --mode plan --settings $settings
+catch {exec /bin/stty -f $spawn_out(slave,name) rows 44 cols 120}
+set setup {Terms of Service & Data Use|Choose your color scheme|Do you trust the contents of this project|Open the following|Sign in required|Authentication required}
+
+proc readSnapshot {file} {
+    if {![file exists $file]} { return "" }
+    set fp [open $file r]
+    set value [read $fp]
+    close $fp
+    return $value
+}
+
+proc stopAgy {} {
+    catch {send -- "\033"}
+    after 150
+    catch {send -- "\003"}
+    after 150
+    catch {send -- "\003"}
+    expect -timeout 1 { eof {} timeout {} }
+    catch {close}
+    catch {wait -nowait}
+}
+
+proc fail {reason} {
+    puts stderr $reason
+    stopAgy
+    exit 1
+}
+
+set deadline [expr {[clock milliseconds] + 9000}]
+set before ""
+while {[clock milliseconds] < $deadline} {
+    set before [readSnapshot $snapshot]
+    if {$before ne ""} { break }
+    expect -timeout 1 {
+        -re $setup {fail "AGY_SETUP"}
+        eof {fail "AGY_EXIT"}
+        timeout {}
+    }
+}
+if {$before eq ""} { fail "AGY_EMPTY" }
+
+send -- "\033"
+after 150
+send -- "/usage"
+# Confirm the CLI recognizes its built-in command before pressing Return.
+expect -timeout 2 {
+    -re {/usage[^\r\n]{0,130}(quota|usage|limit)} {}
+    -re $setup {fail "AGY_SETUP"}
+    eof {fail "AGY_EXIT"}
+    timeout {fail "AGY_COMMAND"}
+}
+send -- "\r"
+expect -timeout 5 {
+    -re {Models & Quota} {}
+    -re $setup {fail "AGY_SETUP"}
+    eof {fail "AGY_EXIT"}
+    timeout {fail "AGY_PANEL"}
+}
+
+set deadline [expr {[clock milliseconds] + 5000}]
+set updated ""
+while {[clock milliseconds] < $deadline} {
+    expect -timeout 1 {
+        -re $setup {fail "AGY_SETUP"}
+        eof {fail "AGY_EXIT"}
+        timeout {}
+    }
+    set updated [readSnapshot $snapshot]
+    if {$updated ne "" && $updated ne $before} { break }
+}
+if {$updated eq "" || $updated eq $before} { fail "AGY_REFRESH" }
+puts "$updated"
+stopAgy

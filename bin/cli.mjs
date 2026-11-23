@@ -259,7 +259,7 @@ async function runConfigure(commandArgs) {
   const normalized = target?.trim().toLowerCase();
   if (!normalized || !CONFIGURE_TARGETS.includes(normalized)) {
     console.error(
-      "Usage: ai-usage-hub configure <kimi|openai-api|openrouter|deepseek|github-copilot>",
+      "Usage: ai-usage-hub configure <kimi|openai-api|openrouter|deepseek|opencode-go|github-copilot>",
     );
     console.error(
       "       ai-usage-hub configure capacity <codex|kimi> <weekly token capacity|clear>",

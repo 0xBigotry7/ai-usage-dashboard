@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleSupportedPlatforms</key><array><string>MacOSX</string></array>
+<key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+<key>CFBundleIdentifier</key><string>dev.aiusage.dashboard.menubar.QuotaWidget</string>
+<key>CFBundleName</key><string>AI Usage Dashboard</string>
+<key>CFBundleDisplayName</key><string>AI Usage Dashboard</string>
+<key>CFBundleExecutable</key><string>QuotaWidget</string>
+<key>CFBundlePackageType</key><string>XPC!</string>
+<key>CFBundleVersion</key><string>APP_VERSION</string>
+<key>CFBundleShortVersionString</key><string>APP_VERSION</string>
+<key>LSMinimumSystemVersion</key><string>14.0</string>
+<key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>
+<key>NSExtension</key><dict><key>NSExtensionPointIdentifier</key><string>com.apple.widgetkit-extension</string></dict>
+</dict></plist>

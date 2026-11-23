@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { normalizeCursorUsage, normalizeGrokBotUsage } from "../collector/providers/cursor.mjs";
 import { collectDeepSeekBalance } from "../collector/providers/deepseek.mjs";
 import { collectGitHubCopilotUsage } from "../collector/providers/github-copilot.mjs";
+import { groupGrokSharedUsage, normalizeGrokBilling } from "../collector/providers/grok.mjs";
 import { collectKimiUsage } from "../collector/providers/kimi.mjs";
 import { collectOpenAIAdminUsage } from "../collector/providers/openai-api.mjs";
 import { collectOpenRouterUsage } from "../collector/providers/openrouter.mjs";
@@ -27,6 +29,38 @@ function jsonResponse(status, payload) {
     headers: { "Content-Type": "application/json" },
   });
 }
+
+test("Grok groups only matching shared weeks and retains each source reading", () => {
+  const start = "2030-01-01T00:00:00.000Z";
+  const end = "2030-01-08T00:00:00.000Z";
+  const now = Date.parse("2030-01-03T00:00:00Z");
+  const build = normalizeGrokBilling({ config: {
+    currentPeriod: { type: "USAGE_PERIOD_TYPE_WEEKLY", start, end },
+    creditUsagePercent: 1,
+    isUnifiedBillingUser: true,
+  } });
+  const bot = {
+    ...normalizeGrokBotUsage({ currentPeriodStart: start, nextResetTimestampUtc: end, usagePercent: 0.1234, isUnified: true }),
+    cursorAccount: "current-account",
+  };
+  const cursor = {
+    ...normalizeCursorUsage({ individualUsage: { plan: { totalPercentUsed: 42 } } }),
+    cursorAccount: "current-account",
+  };
+  const grouped = groupGrokSharedUsage([build, bot, cursor], now);
+  assert.deepEqual(grouped.map(({ id }) => id), ["grok", "cursor"]);
+  assert.equal(grouped[0].windows[0].usedPercent, 1);
+  assert.equal(grouped[0].windows[0].resetsAt, end);
+  assert.deepEqual(grouped[0].readings.map(({ id, windows }) => [id, windows[0].usedPercent]), [
+    ["grok", 1], ["grok-bot", 0.1234],
+  ]);
+
+  const switched = groupGrokSharedUsage([build, bot, { ...cursor, cursorAccount: "another-account" }], now);
+  assert.deepEqual(switched.map(({ id }) => id), ["grok", "cursor"]);
+  const otherWeek = { ...bot, sharedWeekStart: "2030-01-02T00:00:00.000Z" };
+  assert.deepEqual(groupGrokSharedUsage([build, otherWeek, cursor], now), [build, otherWeek, cursor]);
+  assert.deepEqual(groupGrokSharedUsage([build, bot, cursor], Date.parse(end)), [build, bot, cursor]);
+});
 
 test("github copilot adapter sends a real published GitHub API version", async () => {
   const mock = mockFetch(() => jsonResponse(200, { usageItems: [] }));

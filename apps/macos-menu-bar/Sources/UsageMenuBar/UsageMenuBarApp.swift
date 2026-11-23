@@ -4,6 +4,7 @@ import Foundation
 import ServiceManagement
 import SwiftUI
 import UserNotifications
+import WidgetKit
 
 private let defaultStaleInterval: TimeInterval = 10 * 60
 private let claudeStaleInterval: TimeInterval = 45 * 60
@@ -52,9 +53,12 @@ private struct UsageProvider: Decodable, Identifiable {
     let accent: String
     let state: String
     let plan: String?
+    let sourceKind: String?
     let updatedAt: String?
     let windows: [UsageWindow]
     let balance: UsageBalance?
+    let usageDetails: [UsageDetail]?
+    let readings: [ProviderReading]?
     let message: String?
     let tokenUsage: TokenEstimate?
     let tokenEstimates: [TokenEstimate]?
@@ -72,8 +76,15 @@ private struct UsageProvider: Decodable, Identifiable {
     }
 
     var isStale: Bool {
+        if sourceKind == "manual" {
+            if let resetDate = parseResetDate(primaryWindow?.resetDate),
+               let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: resetDate) {
+                return tomorrow <= Date()
+            }
+            return parseISO8601(primaryWindow?.resetsAt).map { $0 <= Date() } ?? false
+        }
         guard let updatedDate else { return true }
-        let threshold = id == "claude"
+        let threshold = id == "claude" || id == "claude-fable"
             ? claudeStaleInterval
             : defaultStaleInterval
         return Date().timeIntervalSince(updatedDate) > threshold
@@ -100,12 +111,29 @@ private struct UsageWindow: Decodable, Identifiable {
     let limit: Double?
     let remaining: Double?
     let resetsAt: String?
+    let resetDate: String?
 }
 
 private struct UsageBalance: Decodable {
     let label: String
     let value: Double
     let unit: String
+    let approximate: Bool?
+}
+
+private struct UsageDetail: Decodable {
+    let label: String
+    let value: String
+}
+
+private struct ProviderReading: Decodable, Identifiable {
+    let id: String
+    let name: String
+    let scope: String
+    let updatedAt: String?
+    let windows: [UsageWindow]
+    let details: [UsageDetail]
+    let message: String?
 }
 
 private struct TokenEstimate: Decodable {
@@ -301,6 +329,20 @@ private final class UsageStore: ObservableObject {
         }
     }
 
+    func applyConnections() async {
+        var request = URLRequest(url: endpoint.deletingLastPathComponent().appendingPathComponent("refresh"))
+        request.httpMethod = "POST"
+        request.timeoutInterval = 90
+        do {
+            let (_, response) = try await URLSession.shared.data(for: request)
+            guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.badServerResponse) }
+            await refresh()
+            WidgetCenter.shared.reloadTimelines(ofKind: "AIUsageQuotaPools")
+        } catch {
+            errorMessage = "Settings saved. The collector could not refresh yet."
+        }
+    }
+
     func openDashboard() {
         let configuredURL = Bundle.main.object(
             forInfoDictionaryKey: "UsageHubDashboardURL"
@@ -309,6 +351,11 @@ private final class UsageStore: ObservableObject {
             string: configuredURL ?? "http://localhost:3000"
         ) else { return }
         NSWorkspace.shared.open(url)
+    }
+
+    func openMuseUsage() {
+        NSWorkspace.shared.open(endpoint.deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("muse"))
     }
 
     func setLaunchAtLogin(_ enabled: Bool) {
@@ -490,6 +537,9 @@ private final class UsageStore: ObservableObject {
 
 private struct MenuBarPanel: View {
     @ObservedObject var store: UsageStore
+    @ObservedObject private var preferences = DesktopPreferences.shared
+    @State private var showingConnections = false
+    @AppStorage("showMenuBarItem") private var showMenuBar = false
     @State private var page = 0
     private var pageCount: Int { max(1, (store.providers.count + 5) / 6) }
     private var currentPage: Int { min(page, pageCount - 1) }
@@ -504,7 +554,7 @@ private struct MenuBarPanel: View {
                     .frame(height: 220)
             } else {
                 VStack(spacing: 10) {
-                    ForEach(0..<2) { row in
+                    ForEach(0..<((visibleProviders.count + 2) / 3), id: \.self) { row in
                         HStack(spacing: 10) {
                             ForEach(Array(visibleProviders.dropFirst(row * 3).prefix(3))) { provider in
                                 CompactQuotaCard(provider: provider)
@@ -624,6 +674,8 @@ private struct MenuBarPanel: View {
 
                 Spacer()
 
+                Toggle("Menu bar", isOn: $showMenuBar)
+                    .toggleStyle(.switch).controlSize(.mini)
                 Picker(
                     "Threshold",
                     selection: Binding(
@@ -654,6 +706,12 @@ private struct MenuBarPanel: View {
 
                 Spacer()
 
+                UsageAppShortcuts()
+                if store.providers.contains(where: { $0.id == "muse" && $0.sourceKind == "manual" }) {
+                    Button("Update Muse") { store.openMuseUsage() }
+                        .buttonStyle(.borderless)
+                }
+
                 Button("Open Dashboard") {
                     store.openDashboard()
                 }
@@ -666,6 +724,19 @@ private struct MenuBarPanel: View {
                 .foregroundStyle(.secondary)
             }
 
+            HStack {
+                Button("Connections…") { showingConnections = true }
+                    .sheet(isPresented: $showingConnections) {
+                        ConnectionSettingsView(preferences: preferences, connected: Set(store.providers.filter { $0.state == "ready" }.map(\.id))) {
+                            Task { await store.applyConnections() }
+                        }
+                    }
+                Spacer()
+                Toggle("Widget updates", isOn: Binding(get: { preferences.choices.widgetEnabled },
+                    set: { flag in preferences.save { $0.widgetEnabled = flag } }))
+                    .toggleStyle(.switch).controlSize(.mini)
+                    .help("Right-click the desktop and choose Edit Widgets to add, resize, or remove AI Usage Dashboard. Turning updates off hides quota readings.")
+            }
             if let launchAtLoginMessage = store.launchAtLoginMessage {
                 Text(launchAtLoginMessage)
                     .font(.system(size: 9))
@@ -688,55 +759,75 @@ private struct MenuBarPanel: View {
 private struct CompactQuotaCard: View {
     let provider: UsageProvider
     @State private var showDetails = false
+    @Environment(\.colorScheme) private var colorScheme
 
     private var title: String { provider.name }
 
-    private var accent: Color { Color(hex: provider.accent) ?? .green }
+    private var accent: Color { providerQuotaTint(provider, dark: colorScheme == .dark) }
+
+    private var quotaDescription: String {
+        guard let window = provider.primaryWindow, let used = window.usedPercent else {
+            return "\(summaryValue) \(summaryLabel), \(quotaResetCaption(provider))"
+        }
+        return "\(window.label), \(formatPercent(max(0, 100 - used))) remaining, \(quotaResetCaption(provider))"
+    }
 
     var body: some View {
         Button { showDetails = true } label: {
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 7) {
                 HStack(spacing: 8) {
                     ProviderLogo(provider: provider, size: 28)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(title).font(.system(size: 12, weight: .semibold)).lineLimit(1)
+                        Text(title).font(.system(size: 12, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.88)
                         Text(provider.plan ?? "Usage")
-                            .font(.system(size: 9)).foregroundStyle(.secondary).lineLimit(1)
+                            .font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
                     }
                     Spacer(minLength: 0)
-                    Circle().fill(providerHealthColor(provider)).frame(width: 6, height: 6)
+                    Circle().fill(providerHealthColor(provider)).frame(width: 7, height: 7)
                 }
-                HStack(alignment: .firstTextBaseline, spacing: 5) {
-                    Text(summaryValue)
-                        .font(.system(size: 32, weight: .semibold, design: .rounded))
-                        .monospacedDigit()
-                    Text(summaryLabel)
-                        .font(.system(size: 9)).foregroundStyle(.secondary)
+
+                if let window = provider.primaryWindow, let used = window.usedPercent {
+                    quotaSummary(window, used: used)
+                } else {
+                    HStack(alignment: .firstTextBaseline, spacing: 5) {
+                        Text(summaryValue).font(.system(size: 25, weight: .semibold)).monospacedDigit()
+                        Text(summaryLabel).font(.system(size: 10)).foregroundStyle(.secondary)
+                    }
+                    .frame(minHeight: 57, alignment: .leading)
                 }
-                ProgressView(value: min(100, max(0, provider.primaryWindow?.usedPercent ?? 0)), total: 100)
-                    .tint(accent).opacity(provider.primaryWindow == nil ? 0.15 : 1)
-                Text(provider.primaryWindow == nil ? "No quota window reported" : resetText(provider.primaryWindow?.resetsAt))
-                    .font(.system(size: 9)).foregroundStyle(.secondary).lineLimit(1)
-                Text(secondaryQuotaText)
-                    .font(.system(size: 9)).foregroundStyle(.secondary).lineLimit(1)
+
+                Divider().overlay(accent.opacity(0.12))
+                Label(quotaResetCaption(provider), systemImage: "clock")
+                    .font(.system(size: 10, weight: .medium))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.9)
+                if let secondaryQuotaText {
+                    Text(secondaryQuotaText).font(.system(size: 9)).foregroundStyle(.secondary).lineLimit(1)
+                }
+                Spacer(minLength: 0)
                 HStack(spacing: 3) {
-                    Text(provider.state != "ready" ? "Unavailable" : provider.isStale ? "Stale" : provider.updatedDate.map { freshnessText($0) } ?? "Waiting")
+                    Text(freshness)
                         .foregroundStyle(provider.isDegraded ? Color.orange : Color.secondary)
                     Spacer(minLength: 0)
-                    Image(systemName: "chevron.right").foregroundStyle(.tertiary)
+                    Image(systemName: "chevron.right").foregroundStyle(accent)
                 }
                 .font(.system(size: 9))
             }
             .padding(13)
             .frame(maxWidth: .infinity, alignment: .leading)
             .frame(height: 185)
-            .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 15))
-            .overlay(RoundedRectangle(cornerRadius: 15).stroke(Color.primary.opacity(0.055), lineWidth: 1))
+            .background {
+                RoundedRectangle(cornerRadius: 15).fill(Color.primary.opacity(0.045))
+                RoundedRectangle(cornerRadius: 15).fill(
+                    LinearGradient(colors: [accent.opacity(0.12), .clear], startPoint: .topLeading, endPoint: .bottomTrailing)
+                )
+            }
+            .overlay(RoundedRectangle(cornerRadius: 15).strokeBorder(accent.opacity(0.25), lineWidth: 1))
             .contentShape(RoundedRectangle(cornerRadius: 15))
         }
         .buttonStyle(.plain)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(title), \(summaryValue) \(summaryLabel)")
+        .accessibilityLabel("\(title), \(quotaDescription)")
         .accessibilityHint("Open quota and token details")
         .help("View \(title) quota windows, tokens, and collection details")
         .popover(isPresented: $showDetails, arrowEdge: .trailing) {
@@ -754,32 +845,103 @@ private struct CompactQuotaCard: View {
         }
     }
 
-    private var secondaryQuotaText: String {
+    private func quotaSummary(_ window: UsageWindow, used: Double) -> some View {
+        HStack(spacing: 8) {
+            QuotaRing(remaining: 100 - used, accent: accent)
+                .frame(width: 42, height: 42)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(window.label)
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.82)
+
+                HStack(spacing: 6) {
+                    quotaFigure("Remaining", max(0, 100 - used), color: accent)
+                }
+            }
+        }
+    }
+
+    private func quotaFigure(_ label: String, _ percent: Double, color: Color) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(formatPercent(percent))
+                .font(.system(size: 17, weight: .semibold))
+                .monospacedDigit()
+                .foregroundStyle(color)
+                .lineLimit(1)
+                .minimumScaleFactor(0.68)
+            Text(label).font(.system(size: 9)).foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var freshness: String {
+        if provider.state != "ready" { return provider.sourceKind == "manual" ? "Awaiting entry" : "Unavailable" }
+        if provider.isStale { return "Stale" }
+        guard let date = provider.updatedDate else { return "Waiting" }
+        return provider.sourceKind == "manual" ? "Updated \(localDateTime(date))" : freshnessText(date)
+    }
+
+    private var secondaryQuotaText: String? {
+        if provider.sourceKind == "manual", let balance = provider.balance {
+            return "Referral bonus: \(balance.approximate == true ? "≈" : "")\(formatTokens(balance.value)) tokens"
+        }
+        if provider.id == "cursor", let onDemand = provider.usageDetails?.first(where: { $0.label == "On-demand usage" }) {
+            return "On-demand usage: \(onDemand.value)"
+        }
+        if provider.id == "antigravity",
+           let window = provider.windows.first(where: { $0.id != provider.primaryWindow?.id }),
+           let used = window.usedPercent {
+            return "\(antigravityGroup(window)) \(formatPercent(100 - used)) left"
+        }
+        if provider.id == "grok-bot", let balance = provider.balance {
+            return "\(balance.label) \(formatBalance(balance))"
+        }
         if let window = provider.windows.first(where: {
             $0.id != provider.primaryWindow?.id && ($0.id.contains("five_hour") || $0.durationSeconds == 18_000) && $0.usedPercent != nil
         }) {
-            return "5 hours \(formatPercent(window.usedPercent))"
+            return "5 hours \(formatPercent(window.usedPercent.map { 100 - $0 })) left"
         }
         if let token = provider.tokenUsage, let total = token.totalTokens {
             return "\(menuTokenCaption(basis: token.basis, period: token.periodId))\(formatTokens(total)) tokens"
         }
-        return "Click for details"
+        return nil
+    }
+
+    private func antigravityGroup(_ window: UsageWindow) -> String {
+        let name = window.label.components(separatedBy: " · ").first ?? window.label
+        if name == "Claude and GPT models" { return "Claude/GPT" }
+        return name.replacingOccurrences(of: " models", with: "")
     }
 
     private var summaryValue: String {
-        if let window = provider.primaryWindow { return formatPercent(window.usedPercent) }
         if let balance = provider.balance { return formatBalance(balance) }
         if let tokens = provider.tokenUsage?.totalTokens { return formatTokens(tokens) }
         return "—"
     }
 
     private var summaryLabel: String {
-        if let window = provider.primaryWindow {
-            return menuQuotaCaption(id: window.id, duration: window.durationSeconds)
-        }
         if provider.balance != nil { return "balance" }
         if provider.tokenUsage != nil { return "tokens" }
         return "not provided"
+    }
+}
+
+private struct QuotaRing: View {
+    let remaining: Double
+    let accent: Color
+
+    var body: some View {
+        ZStack {
+            Circle().strokeBorder(Color.primary.opacity(0.16), lineWidth: 6)
+            Circle().inset(by: 3)
+                .trim(from: 0, to: max(0, min(100, remaining)) / 100)
+                .stroke(accent, lineWidth: 6)
+                .rotationEffect(.degrees(-90))
+        }
+        .accessibilityHidden(true)
     }
 }
 
@@ -875,7 +1037,7 @@ private struct ProviderSummaryStrip: View {
                                 .fill(providerHealthColor(provider))
                                 .frame(width: 5, height: 5)
                         }
-                        Text(formatPercent(provider.primaryWindow?.usedPercent))
+                        Text(formatPercent(provider.primaryWindow?.usedPercent.map { 100 - $0 }))
                             .font(.system(size: 14, weight: .semibold, design: .rounded))
                             .monospacedDigit()
                     }
@@ -897,9 +1059,10 @@ private struct ProviderSummaryStrip: View {
 
 private struct ProviderRow: View {
     let provider: UsageProvider
+    @Environment(\.colorScheme) private var colorScheme
 
     private var accent: Color {
-        Color(hex: provider.accent) ?? .green
+        providerQuotaTint(provider, dark: colorScheme == .dark)
     }
 
     // Prefer today's observed usage over a calibrated quota conversion.
@@ -947,10 +1110,14 @@ private struct ProviderRow: View {
             if !provider.windows.isEmpty {
                 VStack(spacing: 9) {
                     ForEach(provider.windows) { window in
-                        WindowRow(window: window, accent: accent)
+                        WindowRow(window: window, accent: accent,
+                                  reportPace: provider.readings?.isEmpty != false && !["grok-bot", "antigravity"].contains(provider.id),
+                                  showReset: provider.id != "cursor" && (provider.id != "antigravity" || window.resetsAt != nil),
+                                  fractionDigits: 0)
                     }
                 }
-            } else if let balance = provider.balance {
+            }
+            if let balance = provider.balance {
                 HStack {
                     Label(balance.label, systemImage: "wallet.pass")
                         .foregroundStyle(.secondary)
@@ -960,6 +1127,24 @@ private struct ProviderRow: View {
                         .monospacedDigit()
                 }
                 .font(.system(size: 10))
+            }
+            if let details = provider.usageDetails {
+                ForEach(details, id: \.label) { detail in
+                    HStack {
+                        Text(detail.label).foregroundStyle(.secondary)
+                        Spacer()
+                        Text(detail.value).monospacedDigit()
+                    }
+                    .font(.system(size: 10))
+                }
+            }
+
+            if let readings = provider.readings, !readings.isEmpty {
+                DisclosureGroup("Source readings") {
+                    VStack(alignment: .leading, spacing: 12) {
+                        ForEach(readings) { reading in SourceReadingView(reading: reading) }
+                    }.padding(.top, 8)
+                }.font(.system(size: 10))
             }
 
             if let message = provider.message, !message.isEmpty {
@@ -1045,7 +1230,9 @@ private struct ProviderRow: View {
                 Text(primaryValue)
                     .font(.system(size: 15, weight: .semibold, design: .rounded))
                     .monospacedDigit()
-                Text(provider.updatedDate.map(freshnessText) ?? "update time unknown")
+                Text(provider.updatedDate.map { date in
+                    provider.sourceKind == "manual" ? "Updated \(localDateTime(date))" : freshnessText(date)
+                } ?? "update time unknown")
                     .font(.system(size: 8))
                     .foregroundStyle(
                         provider.state != "ready"
@@ -1058,7 +1245,7 @@ private struct ProviderRow: View {
 
     private var primaryValue: String {
         if let percent = provider.primaryWindow?.usedPercent {
-            return "\(Int(percent.rounded()))%"
+            return "\(formatPercent(100 - percent)) left"
         }
         if let balance = provider.balance {
             return formatBalance(balance)
@@ -1079,33 +1266,48 @@ private struct ProviderRow: View {
 private struct WindowRow: View {
     let window: UsageWindow
     let accent: Color
+    let reportPace: Bool
+    let showReset: Bool
+    let fractionDigits: Int
 
     var body: some View {
-        VStack(spacing: 5) {
-            HStack {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(alignment: .firstTextBaseline) {
                 Text(window.label)
-                    .font(.system(size: 10, weight: .medium))
+                    .font(.system(size: 11, weight: .semibold))
                 Spacer()
-                Text(formatPercent(window.usedPercent))
-                    .font(.system(size: 11, weight: .semibold, design: .rounded))
-                    .monospacedDigit()
+                if let percent = window.usedPercent {
+                    Text("\(formatPercent(100 - percent, fractionDigits: fractionDigits)) remaining")
+                        .font(.system(size: 11, weight: .semibold))
+                        .monospacedDigit()
+                }
             }
 
             if let percent = window.usedPercent {
-                ProgressView(value: max(0, min(100, percent)), total: 100)
-                    .tint(percent >= 85 ? .red : percent >= 70 ? .orange : accent)
-                    .scaleEffect(x: 1, y: 0.68, anchor: .center)
+                GeometryReader { geometry in
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(Color.primary.opacity(0.15))
+                        Capsule().fill(percent >= 85 ? .red : percent >= 70 ? .orange : accent)
+                            .frame(width: geometry.size.width * max(0, min(100, 100 - percent)) / 100)
+                    }
+                }
+                .frame(height: 8)
+                .accessibilityHidden(true)
             }
 
-            HStack {
-                Text(quotaDetail)
-                Spacer()
-                Text(resetText(window.resetsAt))
+            if let detail = quotaDetail {
+                Text(detail)
+                    .font(.system(size: 11, weight: .medium))
+                    .monospacedDigit()
             }
-            .font(.system(size: 8))
-            .foregroundStyle(.secondary)
 
-            if let pace = paceForWindow(window) {
+            if showReset {
+                Label(resetLabel(window), systemImage: "clock")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+            }
+
+            if reportPace, let pace = paceForWindow(window) {
                 HStack(spacing: 4) {
                     Image(systemName: pace.level > 0 ? "flame.fill" : "gauge.with.dots.needle.33percent")
                     Text(pace.summary)
@@ -1114,13 +1316,53 @@ private struct WindowRow: View {
                 .foregroundStyle(paceColor(pace.level))
             }
         }
+        .padding(10)
+        .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 9))
+        .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Color.primary.opacity(0.12), lineWidth: 1))
     }
 
-    private var quotaDetail: String {
-        guard let used = window.used, let limit = window.limit else {
-            return "Quota window"
+    private var quotaDetail: String? {
+        let counts: String? = if let used = window.used, let limit = window.limit {
+            "\(formatCompactNumber(used)) / \(formatCompactNumber(limit))"
+        } else { nil }
+        return counts
+    }
+}
+
+private struct SourceReadingView: View {
+    let reading: ProviderReading
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(reading.name).fontWeight(.semibold)
+            Text(reading.scope).foregroundStyle(.secondary)
+            if let date = parseISO8601(reading.updatedAt) {
+                Text(freshnessText(date)).foregroundStyle(.secondary)
+            }
+            ForEach(reading.windows) { window in
+                let digits = reading.id == "grok-bot" ? 4 : 0
+                let percent = formatPercent(window.usedPercent, fractionDigits: digits)
+                let original = window.usedPercent.map { "\($0)%" } ?? percent
+                row(window.label, window.usedPercent == nil ? percent : "\(percent) used").help(original)
+                if let reset = parseISO8601(window.resetsAt) {
+                    row("Resets", localDateTime(reset))
+                }
+            }
+            ForEach(reading.details, id: \.label) { detail in
+                row(detail.label, detail.value)
+            }
+            if let message = reading.message {
+                Text(message).foregroundStyle(.secondary)
+            }
         }
-        return "\(formatCompactNumber(used)) / \(formatCompactNumber(limit))"
+    }
+
+    private func row(_ label: String, _ value: String) -> some View {
+        HStack {
+            Text(label).foregroundStyle(.secondary)
+            Spacer()
+            Text(value).monospacedDigit()
+        }
     }
 }
 
@@ -1169,91 +1411,72 @@ private struct ModelTokenRow: View {
 }
 
 private struct ProviderLogo: View {
-    let provider: UsageProvider
-    var size: CGFloat = 32
+    let id: String
+    let name: String
+    let shortName: String
+    let accent: String
+    let size: CGFloat
 
-    private var tileColor: Color {
-        switch provider.id {
-        case "codex":
-            return .white
-        case "kimi":
-            return .black
-        case "claude":
-            return Color(red: 0.97, green: 0.94, blue: 0.90)
-        default:
-            return Color(hex: provider.accent) ?? .green
-        }
+    init(provider: UsageProvider, size: CGFloat = 32) {
+        self.init(id: provider.id, name: provider.name, shortName: provider.shortName, accent: provider.accent, size: size)
     }
 
-    private var imagePadding: CGFloat {
-        provider.id == "codex" ? 0 : max(5, size * 0.19)
+    init(id: String, name: String, shortName: String, accent: String, size: CGFloat) {
+        self.id = id
+        self.name = name
+        self.shortName = shortName
+        self.accent = accent
+        self.size = size
     }
+
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
+        let color = BrandAssets.tint(id: id, fallback: accent, dark: colorScheme == .dark)
         ZStack {
-            RoundedRectangle(
-                cornerRadius: max(7, size * 0.28),
-                style: .continuous
-            )
-            .fill(tileColor)
-
-            if let image = BrandAssets.image(for: provider.id) {
-                if BrandAssets.hasOriginalColors(provider.id) {
-                    Image(nsImage: image)
-                        .resizable()
-                        .renderingMode(.original)
-                        .scaledToFit()
-                        .padding(imagePadding)
-                } else {
-                    Image(nsImage: image)
-                        .resizable()
-                        .renderingMode(.template)
-                        .foregroundStyle(.white)
-                        .scaledToFit()
-                        .padding(imagePadding)
-                }
+            RoundedRectangle(cornerRadius: size * 0.27).fill(color.opacity(0.12))
+            if let image = BrandAssets.image(for: id) {
+                Image(nsImage: image)
+                    .resizable().renderingMode(.template).scaledToFit()
+                    .frame(width: size * 0.64, height: size * 0.64)
+                    .foregroundStyle(color)
             } else {
-                Text(provider.shortName)
-                    .font(.system(size: 8, weight: .bold))
-                    .foregroundStyle(.white)
+                Text(shortName).font(.system(size: size * 0.34, weight: .bold)).foregroundStyle(color)
             }
         }
         .frame(width: size, height: size)
-        .clipShape(
-            RoundedRectangle(
-                cornerRadius: max(7, size * 0.28),
-                style: .continuous
-            )
-        )
-        .overlay {
-            RoundedRectangle(
-                cornerRadius: max(7, size * 0.28),
-                style: .continuous
-            )
-            .stroke(Color.primary.opacity(0.12), lineWidth: 1)
-        }
-        .help(provider.name)
+        .help(name)
     }
 }
 
 private enum BrandAssets {
     private static let names = [
-        "codex": "codex-color",
-        "claude": "claude-color",
+        "codex": "codex",
+        "claude": "claude",
+        "claude-fable": "claude",
         "openai-api": "openai",
-        "kimi": "kimi-color",
+        "kimi": "kimi",
         "deepseek": "deepseek",
         "openrouter": "openrouter",
         "github-copilot": "githubcopilot",
+        "grok": "grok",
+        "grok-bot": "grok",
+        "cursor": "cursor",
+        "antigravity": "antigravity-mark",
+        "gemini": "gemini",
     ]
-    private static let originalColorProviderIDs = Set([
-        "codex",
-        "claude",
-        "kimi",
-    ])
+    private static let palette: [String: [String]] = {
+        for base in [Bundle.main.resourceURL?.appendingPathComponent("brands"), URL(fileURLWithPath: "public/brands", isDirectory: true)].compactMap({ $0 }) {
+            if let data = try? Data(contentsOf: base.appendingPathComponent("palette.json")),
+               let colors = try? JSONDecoder().decode([String: [String]].self, from: data) { return colors }
+        }
+        return [:]
+    }()
 
-    static func hasOriginalColors(_ providerID: String) -> Bool {
-        originalColorProviderIDs.contains(providerID)
+    static func tint(id: String, fallback: String, dark: Bool) -> Color {
+        let colors = palette[id] ?? []
+        let hex = colors.count == 2 ? colors[dark ? 0 : 1] : fallback
+        return Color(hex: hex) ?? .primary
     }
 
     static func image(for providerID: String) -> NSImage? {
@@ -1285,8 +1508,9 @@ private func freshnessText(_ date: Date) -> String {
     return localDateTime(date)
 }
 
-private func formatPercent(_ value: Double?) -> String {
+private func formatPercent(_ value: Double?, fractionDigits: Int = 0) -> String {
     guard let value else { return "—" }
+    if fractionDigits > 0 { return "\(formatCompactNumber(value, maximumFractionDigits: fractionDigits))%" }
     return "\(Int(value.rounded()))%"
 }
 
@@ -1298,6 +1522,21 @@ private func resetText(_ value: String?) -> String {
         return "awaiting refresh"
     }
     return "resets \(localDateTime(date))"
+}
+
+private func parseResetDate(_ value: String?) -> Date? {
+    guard let components = value?.split(separator: "-").compactMap({ Int($0) }),
+          components.count == 3 else { return nil }
+    return Calendar.current.date(from: DateComponents(
+        year: components[0], month: components[1], day: components[2]
+    ))
+}
+
+private func resetLabel(_ window: UsageWindow) -> String {
+    if let date = parseResetDate(window.resetDate) {
+        return "resets \(date.formatted(.dateTime.month(.abbreviated).day()))"
+    }
+    return resetText(window.resetsAt)
 }
 
 private func paceForWindow(
@@ -1364,6 +1603,10 @@ private func providerHealthColor(_ provider: UsageProvider) -> Color {
     return .green
 }
 
+private func providerQuotaTint(_ provider: UsageProvider, dark: Bool) -> Color {
+    BrandAssets.tint(id: provider.id, fallback: provider.accent, dark: dark)
+}
+
 private func paceColor(_ level: Int) -> Color {
     switch level {
     case 2: return .red
@@ -1378,6 +1621,7 @@ private func formatBalance(_ balance: UsageBalance) -> String {
     case "USD": return "$\(value)"
     case "CNY": return "¥\(value)"
     case "CREDITS": return value
+    case "TOKENS": return "\(balance.approximate == true ? "≈" : "")\(value) tokens"
     default: return "\(value) \(balance.unit.uppercased())"
     }
 }
@@ -1498,7 +1742,7 @@ private struct NodeDiscovery {
 
 /// Locates a Node.js runtime able to run the bundled collector. Probes, in
 /// order: the USAGE_HUB_NODE override, Homebrew and system paths, nvm,
-/// mise, and asdf installs (newest first), then the login shell's PATH.
+/// mise, asdf, and fnm installs (newest first), then the login shell's PATH.
 /// The first candidate whose `--version` meets the floor wins; the best
 /// rejected version is kept for the failure message.
 private func discoverNodeRuntime(
@@ -1515,6 +1759,20 @@ private func discoverNodeRuntime(
         { versionManagerNodeCandidates(installRoot: "\(home)/.nvm/versions/node") },
         { versionManagerNodeCandidates(installRoot: "\(home)/.local/share/mise/installs/node") },
         { versionManagerNodeCandidates(installRoot: "\(home)/.asdf/installs/nodejs") },
+        // fnm keeps each install under <version>/installation and hands
+        // shells a per-session symlink directory that is deleted later, so
+        // its installs are probed directly rather than through the shell.
+        {
+            [
+                "\(home)/.local/share/fnm/node-versions",
+                "\(home)/Library/Application Support/fnm/node-versions",
+            ].flatMap {
+                versionManagerNodeCandidates(
+                    installRoot: $0,
+                    binaryPath: "installation/bin/node"
+                )
+            }
+        },
         { loginShellNodePath().map { [$0] } ?? [] },
     ]
 
@@ -1552,7 +1810,10 @@ private func discoverNodeRuntime(
 /// Lists a version manager's Node installs (for example
 /// ~/.nvm/versions/node/v22.13.0/bin/node) newest first, so the
 /// accept-first probe prefers the latest install.
-private func versionManagerNodeCandidates(installRoot: String) -> [String] {
+private func versionManagerNodeCandidates(
+    installRoot: String,
+    binaryPath: String = "bin/node"
+) -> [String] {
     guard
         let entries = try? FileManager.default
             .contentsOfDirectory(atPath: installRoot)
@@ -1562,7 +1823,7 @@ private func versionManagerNodeCandidates(installRoot: String) -> [String] {
     return entries
         .compactMap { entry -> (version: NodeVersion, path: String)? in
             guard let version = NodeVersion.parse(entry) else { return nil }
-            return (version, "\(installRoot)/\(entry)/bin/node")
+            return (version, "\(installRoot)/\(entry)/\(binaryPath)")
         }
         .sorted { $0.version > $1.version }
         .map(\.path)
@@ -1590,7 +1851,11 @@ private func loginShellNodePath() -> String? {
         return nil
     }
     let path = output.trimmingCharacters(in: .whitespacesAndNewlines)
-    return path.hasPrefix("/") ? path : nil
+    guard path.hasPrefix("/") else { return nil }
+    // Version managers may answer with a per-session symlink (fnm's
+    // fnm_multishells directory) that disappears while the collector is
+    // still running; keep the real binary it points at instead.
+    return URL(fileURLWithPath: path).resolvingSymlinksInPath().path
 }
 
 private func capturedOutput(
@@ -1738,9 +2003,66 @@ private func launchBundledCollector(
     }
 }
 
+private func quotaResetCaption(_ provider: UsageProvider) -> String {
+    if provider.id == "cursor", let billingEnd = provider.usageDetails?.first(where: { $0.label == "Billing period ends" }) {
+        return "Billing ends \(billingEnd.value)"
+    }
+    guard let window = provider.primaryWindow else { return "No quota window" }
+    if let reset = parseISO8601(window.resetsAt), reset >= Date() {
+        return "Resets \(reset.formatted(.dateTime.month(.abbreviated).day().hour().minute()))"
+    }
+    if provider.id == "antigravity", window.resetsAt == nil { return "No active reset" }
+    return resetLabel(window)
+}
+
+private struct UsageAppShortcuts: View {
+    @ObservedObject private var preferences = DesktopPreferences.shared
+    var body: some View {
+        HStack(spacing: 9) {
+            shortcut("gemini", "Gemini", "com.google.GeminiMacOS")
+            shortcut("muse", "Muse", "com.meta.endo")
+        }
+    }
+
+    @ViewBuilder private func shortcut(_ key: String, _ title: String, _ bundle: String) -> some View {
+        if preferences.choices.shortcuts[key] == true,
+           let app = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundle) {
+            Button { NSWorkspace.shared.openApplication(at: app, configuration: .init()) } label: {
+                HStack(spacing: 4) {
+                    Image(nsImage: NSWorkspace.shared.icon(forFile: app.path))
+                        .resizable().scaledToFit().frame(width: 22, height: 22)
+                    Text(title)
+                }
+            }.buttonStyle(.borderless).help("Open " + title + " to check usage")
+        }
+    }
+}
+
+private struct WidgetPoolDetail: View {
+    @ObservedObject var store: UsageStore
+    let poolID: String
+    var body: some View {
+        ScrollView {
+            if let provider = store.providers.first(where: { $0.id == poolID }) {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(provider.id == "claude-fable" ? "Claude · Fable weekly allowance" : provider.name).font(.title3.bold())
+                    if provider.id == "claude" { Text("Subscription allowance · Claude Code").font(.caption) }
+                    ProviderRow(provider: provider)
+                }.padding(16)
+            } else {
+                Text(store.isRefreshing ? "Loading quota pool…" : "This quota pool is no longer available.")
+                    .padding()
+            }
+        }.frame(minWidth: 380, minHeight: 320)
+    }
+}
+
 @MainActor
 private final class UsageMenuBarDelegate: NSObject, NSApplicationDelegate {
-    private var store: UsageStore?
+    private(set) lazy var store = UsageStore()
+    private var dashboardWindow: NSWindow?
+    private var poolWindow: NSWindow?
+    private var defaultsObserver: NSObjectProtocol?
     private var previewWindow: NSWindow?
     private var collectorSupervisor: CollectorSupervisor?
     private var collectorHealthTimer: Timer?
@@ -1749,45 +2071,16 @@ private final class UsageMenuBarDelegate: NSObject, NSApplicationDelegate {
     private var statusUpdateCancellable: AnyCancellable?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        let store = UsageStore()
-        self.store = store
         if !ProcessInfo.processInfo.arguments.contains("--demo") {
             configureBundledCollector(reportingTo: store)
         }
-        let statusItemPositionKey =
-            "NSStatusItem Preferred Position AIUsageDashboardUsage"
-        if UserDefaults.standard.object(forKey: statusItemPositionKey) == nil {
-            // Tahoe may otherwise place a new variable-width item underneath
-            // the camera housing on a crowded MacBook menu bar. This is only
-            // a first-launch position; Command-dragging the item is preserved.
-            UserDefaults.standard.set(540, forKey: statusItemPositionKey)
+        if !ProcessInfo.processInfo.arguments.contains("--demo") {
+            showDashboard()
+            updateMenuVisibility()
+            defaultsObserver = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor in self?.updateMenuVisibility() }
+            }
         }
-        let statusItem = NSStatusBar.system.statusItem(
-            withLength: NSStatusItem.variableLength
-        )
-        statusItem.autosaveName = "AIUsageDashboardUsage"
-        statusItem.isVisible = true
-        let popover = NSPopover()
-        popover.behavior = .transient
-        popover.animates = false
-        popover.contentSize = NSSize(width: 640, height: 560)
-        popover.contentViewController = NSHostingController(
-            rootView: MenuBarPanel(store: store)
-        )
-
-        if let button = statusItem.button {
-            button.target = self
-            button.action = #selector(togglePopover(_:))
-            button.sendAction(on: [.leftMouseUp])
-            button.font = .monospacedDigitSystemFont(
-                ofSize: 11,
-                weight: .medium
-            )
-        }
-
-        self.statusItem = statusItem
-        self.popover = popover
-        updateStatusItem()
         if ProcessInfo.processInfo.arguments.contains("--demo") {
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 560), styleMask: [.titled, .closable], backing: .buffered, defer: false)
             window.title = "AI Usage Dashboard — Demo"
@@ -1825,7 +2118,90 @@ private final class UsageMenuBarDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    private func updateMenuVisibility() {
+        if !UserDefaults.standard.bool(forKey: "showMenuBarItem") {
+            if let item = statusItem {
+                popover?.performClose(nil)
+                NSStatusBar.system.removeStatusItem(item)
+                statusItem = nil
+                popover = nil
+            }
+            return
+        }
+        guard statusItem == nil else { return }
+        let statusItemPositionKey =
+            "NSStatusItem Preferred Position AIUsageDashboardUsage"
+        if UserDefaults.standard.object(forKey: statusItemPositionKey) == nil {
+            // Tahoe may otherwise place a new variable-width item underneath
+            // the camera housing on a crowded MacBook menu bar. This is only
+            // a first-launch position; Command-dragging the item is preserved.
+            UserDefaults.standard.set(540, forKey: statusItemPositionKey)
+        }
+        let statusItem = NSStatusBar.system.statusItem(
+            withLength: NSStatusItem.variableLength
+        )
+        statusItem.autosaveName = "AIUsageDashboardUsage"
+        statusItem.isVisible = true
+        let popover = NSPopover()
+        popover.behavior = .transient
+        popover.animates = false
+        popover.contentSize = NSSize(width: 640, height: 560)
+        popover.contentViewController = NSHostingController(
+            rootView: MenuBarPanel(store: store)
+        )
+
+        if let button = statusItem.button {
+            button.target = self
+            button.action = #selector(togglePopover(_:))
+            button.sendAction(on: [.leftMouseUp])
+            button.font = .monospacedDigitSystemFont(
+                ofSize: 11,
+                weight: .medium
+            )
+        }
+
+        self.statusItem = statusItem
+        self.popover = popover
+        updateStatusItem()
+    }
+
+    private func showDashboard() {
+        if dashboardWindow == nil {
+            let window = NSWindow(contentViewController: NSHostingController(rootView: MenuBarPanel(store: store)))
+            window.title = "AI Usage Dashboard Settings"
+            window.styleMask = [.titled, .closable, .miniaturizable]
+            window.isReleasedWhenClosed = false
+            window.center()
+            dashboardWindow = window
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        dashboardWindow?.makeKeyAndOrderFront(nil)
+    }
+
+    func application(_ application: NSApplication, open urls: [URL]) {
+        guard let url = urls.last, url.scheme == "aiusage-dashboard" else { return }
+        if url.host == "settings" { showDashboard(); return }
+        let id = url.lastPathComponent
+        guard url.host == "pool", id.range(of: #"^[a-z0-9-]{1,64}$"#, options: .regularExpression) != nil else { return }
+        let pane = NSHostingController(rootView: WidgetPoolDetail(store: store, poolID: id))
+        let window = poolWindow ?? NSWindow(contentRect: NSRect(x: 0, y: 0, width: 430, height: 465),
+            styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+        window.contentViewController = pane
+        window.title = "Quota pool details"
+        window.isReleasedWhenClosed = false
+        if poolWindow == nil { window.center() }
+        poolWindow = window
+        NSApp.activate(ignoringOtherApps: true)
+        window.makeKeyAndOrderFront(nil)
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        showDashboard()
+        return true
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
+        if let defaultsObserver { NotificationCenter.default.removeObserver(defaultsObserver) }
         collectorHealthTimer?.invalidate()
         collectorHealthTimer = nil
         collectorSupervisor?.stop()
@@ -1901,11 +2277,11 @@ private final class UsageMenuBarDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func updateStatusItem() {
-        guard let store, let button = statusItem?.button else { return }
+        guard let button = statusItem?.button else { return }
         let font = NSFont.monospacedDigitSystemFont(ofSize: 12.5, weight: .semibold)
         let values = store.providers.prefix(6).map { provider -> (UsageProvider, String) in
             let value = provider.state == "ready"
-                ? provider.primaryWindow?.usedPercent.map { "\(Int($0.rounded()))%" } ?? "—"
+                ? provider.primaryWindow?.usedPercent.map { "\(Int((100 - $0).rounded()))%" } ?? "—"
                 : "—"
             return (provider, value + (provider.isStale ? "*" : ""))
         }
@@ -1932,7 +2308,7 @@ private final class UsageMenuBarDelegate: NSObject, NSApplicationDelegate {
         button.attributedTitle = NSAttributedString(string: "")
         button.image = image
         button.imagePosition = .imageOnly
-        button.toolTip = store.providers.map { "\($0.name): \(formatPercent($0.primaryWindow?.usedPercent))\($0.isStale ? " (stale)" : "")" }.joined(separator: "\n")
+        button.toolTip = store.providers.map { "\($0.name): \(formatPercent($0.primaryWindow?.usedPercent.map { 100 - $0 })) left\($0.isStale ? " (stale)" : "")" }.joined(separator: "\n")
         button.setAccessibilityLabel(button.toolTip ?? store.menuTitle)
         statusItem?.length = NSStatusItem.variableLength
     }
@@ -1945,7 +2321,7 @@ private struct UsageMenuBarApp: App {
 
     var body: some Scene {
         Settings {
-            EmptyView()
+            MenuBarPanel(store: appDelegate.store)
         }
     }
 }

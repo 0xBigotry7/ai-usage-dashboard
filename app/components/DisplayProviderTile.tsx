@@ -3,8 +3,9 @@ import {
   clamp,
   formatAge,
   formatBalance,
-  formatCountdown,
   formatPercent,
+  formatQuotaReset,
+  formatResetDate,
   formatTokens,
 } from "../../lib/format";
 import {
@@ -17,7 +18,7 @@ import {
   type ResetLookup,
 } from "../../lib/provider-selectors";
 import type { Provider } from "../../lib/usage-types";
-import { ProviderLogo } from "../provider-logo";
+import { ProviderLogo, brandAccent } from "../provider-logo";
 
 export const DisplayProviderTile = memo(function DisplayProviderTile({
   provider,
@@ -40,7 +41,8 @@ export const DisplayProviderTile = memo(function DisplayProviderTile({
   return (
     <article
       className={`display-provider display-provider--${risk} ${stale ? "display-provider--stale" : ""}`}
-      style={{ "--provider-accent": provider.accent } as React.CSSProperties}
+      data-provider={provider.id}
+      style={{ "--provider-accent": brandAccent(provider) } as React.CSSProperties}
     >
       <header className="display-provider__header">
         <div>
@@ -54,7 +56,7 @@ export const DisplayProviderTile = memo(function DisplayProviderTile({
           {stale
             ? "STALE"
             : peak && risk !== "normal"
-              ? `${peak.label} ${formatPercent(peak.usedPercent)}`
+              ? `${peak.label} · low quota`
               : "LIVE"}
         </span>
       </header>
@@ -63,23 +65,25 @@ export const DisplayProviderTile = memo(function DisplayProviderTile({
         <div className="display-windows">
           {windows.map((window) => {
             const reset = lookupReset(resets, provider.id, window);
+            const remaining = clamp(100 - (window.usedPercent ?? 0));
             return (
               <div className="display-window" key={window.id}>
-                <span>{window.label}</span>
-                <strong>{formatPercent(window.usedPercent)}</strong>
+                <span title={window.label}>{window.label}</span>
+                <strong>{formatPercent(remaining)} <small>remaining</small></strong>
                 <div
                   className="display-meter"
                   role="progressbar"
-                  aria-label={`${provider.name} ${window.label} used`}
+                  aria-label={`${provider.name} ${window.label} remaining`}
                   aria-valuemin={0}
                   aria-valuemax={100}
-                  aria-valuenow={window.usedPercent ?? undefined}
+                  aria-valuenow={remaining}
                 >
-                  <i style={{ width: `${clamp(window.usedPercent ?? 0)}%` }} />
+                  <i style={{ width: `${remaining}%` }} />
                 </div>
                 <small>
-                  {reset.estimated ? "est. " : ""}
-                  {formatCountdown(reset.resetsAt)}
+                  {window.resetDate ? `Resets ${formatResetDate(window.resetDate)}` : reset.resetsAt
+                    ? `${reset.estimated ? "Est. reset" : "Resets"} ${formatQuotaReset(reset.resetsAt)}`
+                    : "No reset reported"}
                 </small>
               </div>
             );

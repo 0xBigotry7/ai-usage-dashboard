@@ -1,9 +1,9 @@
 import {
   clamp,
-  formatCountdown,
   formatNumber,
   formatPercent,
-  formatResetClock,
+  formatQuotaReset,
+  formatResetDate,
 } from "../../lib/format";
 import type { ResolvedReset } from "../../lib/provider-selectors";
 import type { WindowUsage } from "../../lib/usage-types";
@@ -11,49 +11,49 @@ import type { WindowUsage } from "../../lib/usage-types";
 export function WindowRow({
   window,
   reset,
+  showReset = true,
+  compact = false,
 }: {
   window: WindowUsage;
   reset: ResolvedReset;
+  showReset?: boolean;
+  compact?: boolean;
 }) {
-  const percent = window.usedPercent ?? 0;
+  const remaining = clamp(100 - (window.usedPercent ?? 0));
+  const hasReset = showReset && (window.resetDate || reset.resetsAt);
   return (
-    <div className="window-row">
-      <div className="window-row__top">
-        <div>
-          <span className="window-row__label">{window.label}</span>
-          <span className="window-row__reset">
-            {reset.estimated && reset.resetsAt ? "est. " : ""}
-            {formatCountdown(reset.resetsAt)}
-          </span>
-        </div>
-        <span className="window-row__percent">
-          {formatPercent(window.usedPercent)}
-        </span>
-      </div>
-      <div
+    <div className={compact ? "window-row window-row--compact" : "window-row"}>
+      {!compact ? <div className="window-row__top">
+        <span className="window-row__label">{window.label}</span>
+        {window.usedPercent !== null ? (
+          <div className="window-row__figures">
+            <span><b>{formatPercent(remaining)}</b> remaining</span>
+          </div>
+        ) : null}
+      </div> : null}
+      {window.usedPercent !== null ? <div
         className="meter"
         role="progressbar"
-        aria-label={`${window.label} used`}
+        aria-label={`${window.label} remaining`}
         aria-valuemin={0}
         aria-valuemax={100}
-        aria-valuenow={window.usedPercent ?? undefined}
+        aria-valuenow={remaining}
       >
-        <span style={{ width: `${clamp(percent)}%` }} />
-      </div>
-      <div className="window-row__detail">
-        <span>
-          Resets {reset.estimated && reset.resetsAt ? "~" : ""}
-          {formatResetClock(reset.resetsAt)}
-          {reset.estimated && reset.resetsAt ? " · estimated from history" : ""}
-        </span>
+        <span style={{ width: `${remaining}%` }} />
+      </div> : null}
+      {hasReset || window.limit !== null ? <div className="window-row__detail">
+        {hasReset ? <span>
+          {reset.estimated ? "Estimated reset " : "Resets "}
+          <time dateTime={window.resetDate ?? reset.resetsAt ?? undefined}>
+            {window.resetDate ? formatResetDate(window.resetDate) : reset.resetsAt ? formatQuotaReset(reset.resetsAt) : null}
+          </time>
+        </span> : null}
         {window.limit !== null ? (
           <span>
             {formatNumber(window.used)} / {formatNumber(window.limit)}
           </span>
-        ) : (
-          <span>Provider-reported quota</span>
-        )}
-      </div>
+        ) : null}
+      </div> : null}
     </div>
   );
 }
