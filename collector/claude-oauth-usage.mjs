@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { readFile } from "node:fs/promises";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { clampPercent, HUB_VERSION, numberOrNull, toIsoTime } from "./shared.mjs";
 
@@ -14,6 +14,11 @@ const USAGE_URL = "https://api.anthropic.com/api/oauth/usage";
 const KEYCHAIN_SERVICE = "Claude Code-credentials";
 const CACHE_MS = 5 * 60_000;
 const FAILURE_BACKOFF_MS = 15 * 60_000;
+// A token this close to its expiry is treated as expired, so a request is
+// never sent with a token that lapses on the way.
+const EXPIRY_MARGIN_MS = 60_000;
+const RENEWAL_RETRY_MS = 30 * 60_000;
+const RENEWAL_TIMEOUT_MS = 60_000;
 
 export function claudeOAuthUsageEnabled(env = process.env) {
   return env.USAGE_HUB_CLAUDE_OAUTH_USAGE?.trim() === "1";
@@ -85,6 +90,13 @@ export async function readClaudeOAuthCredentials(env = process.env) {
   }
 }
 
+// The endpoint reports the same reset a few milliseconds apart on each call.
+// Rounding to the minute keeps it stable for history and alert de-duplication.
+function resetTime(value) {
+  const iso = toIsoTime(value);
+  return iso && new Date(Math.round(Date.parse(iso) / 60_000) * 60_000).toISOString();
+}
+
 function weeklyWindow(id, label, usedPercent, resetsAt) {
   return {
     id,
@@ -111,13 +123,13 @@ export function normalizeClaudeOAuthUsage(payload) {
       used: null,
       limit: null,
       remaining: null,
-      resetsAt: toIsoTime(fiveHour?.resets_at),
+      resetsAt: resetTime(fiveHour?.resets_at),
     });
   }
   const weekly = payload?.seven_day;
   const weeklyPercent = clampPercent(numberOrNull(weekly?.utilization));
   if (weeklyPercent !== null) {
-    windows.push(weeklyWindow("weekly", "Weekly", weeklyPercent, toIsoTime(weekly?.resets_at)));
+    windows.push(weeklyWindow("weekly", "Weekly", weeklyPercent, resetTime(weekly?.resets_at)));
   }
 
   const scoped = [];
@@ -128,7 +140,7 @@ export function normalizeClaudeOAuthUsage(payload) {
     if (typeof name !== "string" || !name.trim() || usedPercent === null) continue;
     scoped.push({
       model: name.trim(),
-      window: weeklyWindow("weekly", "Weekly", usedPercent, toIsoTime(limit?.resets_at)),
+      window: weeklyWindow("weekly", "Weekly", usedPercent, resetTime(limit?.resets_at)),
     });
   }
   return { windows, scoped };
@@ -138,20 +150,70 @@ const readings = new Map();
 
 export function resetClaudeOAuthUsageCache() {
   readings.clear();
+  renewal.attemptedAt = -Infinity;
+  renewal.pending = null;
 }
 
-async function fetchUsage(credentials, fetchImpl) {
+function isExpired(credentials, now) {
+  return Boolean(credentials?.expiresAt) && credentials.expiresAt - EXPIRY_MARGIN_MS <= now;
+}
+
+// The collector never uses the refresh token itself: rotating it outside
+// Claude Code could sign the CLI out. Claude Code renews its own sign-in
+// whenever it sends a request, so the smallest possible request does the job:
+// one word to the cheapest model, with tools, customizations and session
+// saving switched off. Only the variables Claude Code needs are passed on, so
+// keys from the private env file never reach it.
+export function renewWithClaudeCode(binary, env) {
+  const childEnv = { HOME: homedir(), PATH: env.PATH || "/usr/bin:/bin" };
+  for (const key of ["USER", "LOGNAME", "TMPDIR", "LANG", "CLAUDE_CONFIG_DIR"]) {
+    if (env[key]?.trim()) childEnv[key] = env[key];
+  }
+  return new Promise((resolve) => {
+    const child = execFile(
+      binary,
+      [
+        "-p", "ok", "--model", "haiku", "--safe-mode", "--strict-mcp-config", "--tools", "",
+        "--no-session-persistence", "--system-prompt", "Reply with one word.",
+      ],
+      { cwd: tmpdir(), env: childEnv, timeout: RENEWAL_TIMEOUT_MS },
+      (error) => resolve(!error),
+    );
+    // Without this Claude Code would wait for a prompt on the open pipe.
+    child.stdin?.end();
+  });
+}
+
+const renewal = { attemptedAt: -Infinity, pending: null };
+
+// One attempt at a time for every card that shares the sign-in, and no more
+// than one attempt per retry period however often the cards refresh.
+function renewExpiredSignIn(env, now, renew) {
+  if (renewal.pending) return renewal.pending;
+  const binary = env.USAGE_HUB_CLAUDE_BIN?.trim();
+  if (!binary || now - renewal.attemptedAt < RENEWAL_RETRY_MS) return false;
+  renewal.attemptedAt = now;
+  renewal.pending = Promise.resolve()
+    .then(() => renew(binary, env))
+    .catch(() => false)
+    .finally(() => {
+      renewal.pending = null;
+    });
+  return renewal.pending;
+}
+
+async function fetchUsage(credentials, fetchImpl, { now, canRenew }) {
   if (!credentials) {
     return { ok: false, reason: "no_credentials", message: "Claude Code is not signed in on this Mac." };
   }
-  if (credentials.expiresAt && credentials.expiresAt <= Date.now()) {
-    // Refreshing is left to Claude Code itself; rotating the token here could
-    // sign the CLI out.
+  if (isExpired(credentials, now)) {
     return {
       ok: false,
       reason: "expired",
       subscriptionType: credentials.subscriptionType,
-      message: "Claude sign-in token expired; it refreshes the next time Claude Code runs.",
+      message: canRenew
+        ? "Claude sign-in could not be renewed automatically. Open Claude Code in a terminal and sign in again if it asks."
+        : "Claude sign-in has expired. It renews the next time Claude Code runs in a terminal on this Mac.",
     };
   }
   const response = await fetchImpl(USAGE_URL, {
@@ -180,9 +242,15 @@ async function fetchUsage(credentials, fetchImpl) {
 
 // Shared by the Claude and Claude-per-model cards: one request per cache
 // period no matter how many cards read it.
-export async function getClaudeOAuthUsage(env = process.env, { fetchImpl = fetch, now = Date.now() } = {}) {
+export async function getClaudeOAuthUsage(
+  env = process.env,
+  { fetchImpl = fetch, now = Date.now(), renew = renewWithClaudeCode } = {},
+) {
   if (!claudeOAuthUsageEnabled(env)) return null;
-  const credentials = await readClaudeOAuthCredentials(env);
+  let credentials = await readClaudeOAuthCredentials(env);
+  if (isExpired(credentials, now) && await renewExpiredSignIn(env, now, renew)) {
+    credentials = await readClaudeOAuthCredentials(env);
+  }
   const key = createHash("sha256").update(JSON.stringify([claudeConfigDir(env),
     credentials?.accessToken, credentials?.expiresAt])).digest("hex");
   for (const [id, record] of readings) {
@@ -195,7 +263,10 @@ export async function getClaudeOAuthUsage(env = process.env, { fetchImpl = fetch
   record.pending = (async () => {
     let result;
     try {
-      result = await fetchUsage(credentials, fetchImpl);
+      result = await fetchUsage(credentials, fetchImpl, {
+        now,
+        canRenew: Boolean(env.USAGE_HUB_CLAUDE_BIN?.trim()),
+      });
     } catch (error) {
       result = {
         ok: false,

@@ -33,6 +33,7 @@ export function UsageDashboard({
     error,
     refreshing,
     refreshSignal,
+    now,
     locked,
     setLocked,
     load,
@@ -85,6 +86,7 @@ export function UsageDashboard({
               providers={visibleProviders}
               resets={resolvedResets}
               error={error}
+              now={now}
               refreshSignal={refreshSignal}
               warningThreshold={warningThreshold}
               onRefresh={refresh}
@@ -118,6 +120,8 @@ export function UsageDashboard({
                 providers={visibleProviders}
                 resets={resolvedResets}
                 riskCount={riskCount}
+                now={now}
+                unreachable={Boolean(error) && Boolean(data)}
               />
 
               <TokenOverview providers={visibleProviders} />
@@ -131,6 +135,7 @@ export function UsageDashboard({
                 history={history}
                 resets={resolvedResets}
                 warningThreshold={warningThreshold}
+                now={now}
                 onOpenControls={openControls}
                 onRetry={refresh}
               />

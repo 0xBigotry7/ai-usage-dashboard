@@ -59,7 +59,7 @@ export async function POST(request: Request) {
     };
     const isTransientRateLimit =
       provider.state === "error" &&
-      /(?:HTTP\s*)?429|rate.?limit/i.test(provider.message || "");
+      /\b429\b|rate.?limit/i.test(provider.message || "");
     if (isTransientRateLimit) {
       const [existing] = await db
         .select()
@@ -75,7 +75,8 @@ export async function POST(request: Request) {
           if (previous?.state === "ready") {
             storedProvider = {
               ...previous,
-              source: `${previous.source} · last good snapshot`,
+              // The stored row may already be a fallback; label it once.
+              source: `${previous.source.replace(/(?: · last good snapshot)+$/, "")} · last good snapshot`,
               message:
                 provider.message ||
                 "Provider usage API is temporarily rate limited; showing the last good snapshot.",

@@ -7,7 +7,9 @@ private struct Pool: Decodable, Identifiable {
     let remaining: Int
     let reset: String?
     let dayOnly: Bool
-    let stale: Bool
+    var stale: Bool
+    // When the reading turns stale by age; absent for manual snapshots.
+    var staleAt: String?
     var resetDate: Date? {
         guard let reset else { return nil }
         if dayOnly {
@@ -16,9 +18,15 @@ private struct Pool: Decodable, Identifiable {
             parser.dateFormat = "yyyy-MM-dd"
             return parser.date(from: reset)
         }
-        return (try? Date(reset, strategy: .iso8601.time(includingFractionalSeconds: true))) ?? (try? Date(reset, strategy: .iso8601))
+        return parseTimestamp(reset)
     }
+    var staleDate: Date? { staleAt.flatMap(parseTimestamp) }
     var destination: URL { URL(string: "aiusage-dashboard://pool/")!.appendingPathComponent(id) }
+}
+// The collector sends times with fractional seconds; accept both forms.
+private func parseTimestamp(_ value: String) -> Date? {
+    (try? Date(value, strategy: Date.ISO8601FormatStyle(includingFractionalSeconds: true)))
+        ?? (try? Date(value, strategy: .iso8601))
 }
 private struct Snapshot: Decodable {
     let enabled: Bool
@@ -52,14 +60,28 @@ private struct Provider: TimelineProvider {
                 completion(Timeline(entries: [entry], policy: .never))
                 return
             }
+            guard !entry.offline else {
+                // One missed answer should not blank the widget for 15 minutes.
+                completion(Timeline(entries: [entry], policy: .after(entry.date.addingTimeInterval(2 * 60))))
+                return
+            }
             var entries = [entry]
             let next = entry.date.addingTimeInterval(15 * 60)
-            // Drop expired numbers even when WidgetKit delays the next fetch.
-            let resets = Set(entry.pools.compactMap { $0.dayOnly ? nil : $0.resetDate })
-            for date in resets.sorted() where date > entry.date {
+            // WidgetKit may delay the next fetch for hours, so schedule the
+            // changes that are already known: a pool disappears at its reset,
+            // and its reading is marked stale when it gets too old.
+            let changes = Set(entry.pools.flatMap { pool in
+                [pool.dayOnly ? nil : pool.resetDate, pool.stale ? nil : pool.staleDate].compactMap { $0 }
+            })
+            for date in changes.sorted() where date > entry.date {
                 var updated = entry
                 updated.date = date
-                updated.pools.removeAll { !$0.dayOnly && ($0.resetDate ?? .distantFuture) <= date }
+                updated.pools = entry.pools.compactMap { pool in
+                    if !pool.dayOnly, let reset = pool.resetDate, reset <= date { return nil }
+                    var pool = pool
+                    if let staleDate = pool.staleDate, staleDate <= date { pool.stale = true }
+                    return pool
+                }
                 entries.append(updated)
             }
             completion(Timeline(entries: entries, policy: .after(next)))

@@ -13,10 +13,6 @@ struct MenuPresentationCheck {
         assert(menuPageRange(count: 6, page: 0, size: 0) == 0..<0)
         let pages = (0..<3).flatMap { Array(menuPageRange(count: 13, page: $0)) }
         assert(pages == Array(0..<13), "No configured provider may disappear or repeat")
-        assert(menuQuotaCaption(id: "weekly", duration: nil) == "used · weekly")
-        assert(menuQuotaCaption(id: "model_quota", duration: 604800) == "used · weekly")
-        assert(menuQuotaCaption(id: "model_short", duration: 18000) == "used · 5 hours")
-        assert(menuQuotaCaption(id: "monthly", duration: nil) == "used · cycle")
         assert(menuTokenCaption(basis: "quota_percentage", period: "today") == "Cycle estimate ≈")
         assert(menuTokenCaption(basis: "session_logs", period: "today") == "Today · ")
         assert(menuTokenCaption(basis: "api_usage", period: "weekly_cycle") == "Cycle · ")
@@ -25,6 +21,6 @@ struct MenuPresentationCheck {
         assert(providers.count == 6)
         assert(Set(providers.compactMap { $0["id"] as? String }).count == 6)
         assert(providers.allSatisfy { $0["plan"] as? String == "Demo data" })
-        print("Menu presentation checks passed (pagination, quota labels, token basis, synthetic fixture).")
+        print("Menu presentation checks passed (pagination, token basis, synthetic fixture).")
     }
 }

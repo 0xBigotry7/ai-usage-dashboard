@@ -13,29 +13,47 @@ const GROK_BOT = {
   authMessage: "Sign in to the Cursor account linked to Grok Bot.",
 };
 
+// Newer Cursor builds encrypt the saved sign-in on disk. That protection is
+// Cursor's to keep, so the reader stops here instead of trying to undo it.
+const ENCRYPTED_AT_REST =
+  "Cursor now keeps its sign-in encrypted on this Mac, so usage can no longer be read from the desktop app.";
+
 // Read the current desktop access token only. The application manages login
 // and renewal. This collector never persists credentials or follows redirects.
 function readCursorSession(env) {
   const path = env.USAGE_HUB_CURSOR_DB?.trim()
     || join(homedir(), "Library", "Application Support", "Cursor", "User", "globalStorage", "state.vscdb");
+  const signedOut = () => Object.assign(new Error("Cursor desktop sign-in is unavailable."), { status: 401 });
+  let value;
   let db;
   try {
     db = new DatabaseSync(path, { readOnly: true });
     const row = db.prepare("SELECT value FROM ItemTable WHERE key = ?").get("cursorAuth/accessToken");
-    let value = row?.value == null ? "" : Buffer.from(row.value).toString("utf8").trim();
+    value = row?.value == null ? "" : Buffer.from(row.value).toString("utf8").trim();
     if (value.startsWith('"')) value = JSON.parse(value);
-    const token = value.split("::").at(-1);
-    if (!/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(token)) throw new Error();
-    const claims = decodeJwtPayload(token);
-    const account = claims?.sub?.split("|").at(-1);
-    if (!/^[A-Za-z0-9_-]+$/.test(account ?? "") ||
-        !Number.isFinite(claims?.exp) || claims.exp * 1_000 <= Date.now()) throw new Error();
-    return { token, account };
   } catch {
-    throw Object.assign(new Error("Cursor desktop sign-in is unavailable."), { status: 401 });
+    throw signedOut();
   } finally {
     db?.close();
   }
+  if (!value) throw signedOut();
+  const token = value.split("::").at(-1);
+  if (!/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(token)) {
+    throw Object.assign(new Error(ENCRYPTED_AT_REST), { unreadable: true });
+  }
+  const claims = decodeJwtPayload(token);
+  const account = claims?.sub?.split("|").at(-1);
+  if (!/^[A-Za-z0-9_-]+$/.test(account ?? "") ||
+      !Number.isFinite(claims?.exp) || claims.exp * 1_000 <= Date.now()) throw signedOut();
+  return { token, account };
+}
+
+// A sign-in this reader cannot use will not start working on a retry.
+function failure(identity, error, source, hint = "") {
+  const result = providerError(identity, error, source);
+  return error?.unreadable
+    ? { ...result, message: `${result.message}${hint}`, retryable: false }
+    : result;
 }
 
 function percent(input) {
@@ -151,7 +169,7 @@ export async function collectCursorUsage(env = process.env) {
     }, 10_000);
     return { ...normalizeCursorUsage(data), cursorAccount: account };
   } catch (error) {
-    return providerError(CURSOR, error, "Cursor desktop account");
+    return failure(CURSOR, error, "Cursor desktop account");
   }
 }
 
@@ -177,6 +195,7 @@ export async function collectGrokBotUsage(env = process.env) {
     ]);
     return { ...normalizeGrokBotUsage(usage, breakdown), cursorAccount: account };
   } catch (error) {
-    return providerError(GROK_BOT, error, "Grok Bot billing");
+    return failure(GROK_BOT, error, "Grok Bot billing",
+      " When Grok Bot draws on the shared Grok weekly allowance, the Grok card still counts its usage.");
   }
 }

@@ -12,15 +12,35 @@ struct SourceSetup: Decodable, Identifiable {
     let id, name, method, help: String
     let fields: [SourceField]
 }
+// Both types read as leniently as collector/desktop-preferences.mjs does: a
+// file the collector accepts must not lock the app out of saving settings.
 struct ConnectionChoice: Codable {
     var mode = "auto"
     var values: [String: String] = [:]
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        mode = try container.decodeIfPresent(String.self, forKey: .mode) ?? "auto"
+        values = try container.decodeIfPresent([String: String].self, forKey: .values) ?? [:]
+    }
 }
 struct DesktopChoices: Codable {
     var version = 1
     var widgetEnabled = true
     var shortcuts: [String: Bool] = [:]
     var sources: [String: ConnectionChoice] = [:]
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        version = try container.decode(Int.self, forKey: .version)
+        widgetEnabled = try container.decodeIfPresent(Bool.self, forKey: .widgetEnabled) ?? true
+        shortcuts = try container.decodeIfPresent([String: Bool].self, forKey: .shortcuts) ?? [:]
+        sources = try container.decodeIfPresent([String: ConnectionChoice].self, forKey: .sources) ?? [:]
+    }
 }
 @MainActor
 final class DesktopPreferences: ObservableObject {

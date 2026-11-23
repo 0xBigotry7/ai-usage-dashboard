@@ -22,6 +22,19 @@ These goals depend on keeping real values outside source-controlled files.
   `refresh_token_reused` and forces a fresh sign-in), and the CLI may keep
   its canonical tokens in the OS keyring rather than `auth.json`. Refreshing
   outside the CLI could therefore invalidate the user's real Codex session.
+- Claude Code credentials are read only when `USAGE_HUB_CLAUDE_OAUTH_USAGE=1`
+  opts in, from the CLI's own store (macOS Keychain, or `.credentials.json`),
+  and are never modified. The access token is sent only to Claude's usage
+  endpoint. For the same reason as Codex, the collector never calls the OAuth
+  refresh endpoint. With `USAGE_HUB_CLAUDE_BIN` set, an expired sign-in is
+  renewed by Claude Code itself: the collector runs the CLI once with a
+  one-word prompt, the smallest model, and tools, plugins, hooks and session
+  saving switched off, passing only `HOME`, `PATH` and the locale variables.
+  This spends a few hundred tokens at most once per expiry and is off by
+  default.
+- The Cursor and Grok Bot readers use the access token the Cursor desktop app
+  stores, in memory only. When Cursor stores that token encrypted, the readers
+  report it as unreadable and stop; they do not access the encryption key.
 - Optional provider keys (Kimi, OpenAI Admin, OpenRouter, DeepSeek, GitHub
   Copilot) are entered through a non-echoing prompt and stored in
   `~/.usage-hub/env` with mode `0600`, written via an atomic rename.

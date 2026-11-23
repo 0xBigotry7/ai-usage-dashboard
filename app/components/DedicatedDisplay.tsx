@@ -1,10 +1,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { formatAge } from "../../lib/format";
-import {
-  isProviderStale,
-  type ResetLookup,
-} from "../../lib/provider-selectors";
+import { healthSummary, type ResetLookup } from "../../lib/provider-selectors";
 import type { Provider, UsagePayload } from "../../lib/usage-types";
 import { REFRESH_SECONDS } from "../hooks/use-usage-data";
 import { useWakeLock } from "../hooks/use-wake-lock";
@@ -16,6 +13,7 @@ export function DedicatedDisplay({
   providers,
   resets,
   error,
+  now,
   refreshSignal,
   warningThreshold,
   onRefresh,
@@ -24,6 +22,8 @@ export function DedicatedDisplay({
   providers: Provider[];
   resets: ResetLookup;
   error: string | null;
+  /** Ticking clock from useUsageData; ages and staleness follow it. */
+  now: number;
   refreshSignal: number;
   warningThreshold: number;
   onRefresh: () => void;
@@ -85,7 +85,7 @@ export function DedicatedDisplay({
     }
   }
 
-  const staleCount = providers.filter(isProviderStale).length;
+  const health = healthSummary(providers, now);
   return (
     <section className="dedicated-display" aria-label="External always-on display">
       <header className="display-header">
@@ -100,8 +100,8 @@ export function DedicatedDisplay({
             <small>
               {error
                 ? "Collector offline"
-                : staleCount
-                  ? `${providers.length - staleCount} live · ${staleCount} stale`
+                : health.stale || health.unavailable
+                  ? health.text
                   : `${providers.length} providers live`}
             </small>
           </span>
@@ -148,6 +148,7 @@ export function DedicatedDisplay({
               provider={provider}
               resets={resets}
               warningThreshold={warningThreshold}
+              now={now}
             />
           ))
         ) : (
@@ -168,7 +169,7 @@ export function DedicatedDisplay({
       <footer className="display-footer">
         <span>
           {data?.generatedAt
-            ? `Snapshot ${formatAge(data.generatedAt)}`
+            ? `Collector checked ${formatAge(data.generatedAt, now)}`
             : "Connecting to local collector"}
         </span>
         {pageCount > 1 ? (

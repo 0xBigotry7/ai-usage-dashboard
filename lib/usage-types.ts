@@ -65,6 +65,11 @@ export type Provider = {
   plan: string | null;
   source: string;
   sourceKind?: string;
+  /**
+   * When the reading was taken, never when it was last polled or relayed.
+   * Every client decides staleness from this, so a fallback or cached
+   * reading must keep its original time. Empty when no reading exists.
+   */
   updatedAt: string;
   windows: WindowUsage[];
   balance: {

@@ -14,7 +14,6 @@ import { collectOpenAIAdminUsage } from "./openai-api.mjs";
 import { collectOpenRouterUsage } from "./openrouter.mjs";
 import { collectOpenCodeGoUsage } from "./opencode-go.mjs";
 import { createProviderRefreshCoordinator } from "../provider-refresh.mjs";
-
 import { sourceConfiguration } from "../desktop-preferences.mjs";
 
 const coordinators = new Map();
@@ -30,6 +29,7 @@ export const providerAdapters = [
     id: "muse",
     name: "Meta Muse",
     configured: (env) => Boolean(env.USAGE_HUB_MUSE_FILE?.trim()),
+    // A local file the user edits by hand: re-read it on every cycle.
     pollIntervalMs: 1,
     collect: collectMuseUsage,
   },

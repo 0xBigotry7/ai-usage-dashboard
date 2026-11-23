@@ -75,18 +75,15 @@ private struct UsageProvider: Decodable, Identifiable {
         parseISO8601(updatedAt)
     }
 
+    // Same rule as lib/provider-selectors.ts and the widget feed in
+    // collector/desktop-preferences.mjs; keep the three in step.
     var isStale: Bool {
-        if sourceKind == "manual" {
-            if let resetDate = parseResetDate(primaryWindow?.resetDate),
-               let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: resetDate) {
-                return tomorrow <= Date()
-            }
-            return parseISO8601(primaryWindow?.resetsAt).map { $0 <= Date() } ?? false
-        }
+        // A reading taken before its window reset describes the last cycle.
+        if primaryWindow?.isExpired() == true { return true }
+        // A manual snapshot stays valid until its window ends.
+        if sourceKind == "manual" { return false }
         guard let updatedDate else { return true }
-        let threshold = id == "claude" || id == "claude-fable"
-            ? claudeStaleInterval
-            : defaultStaleInterval
+        let threshold = id.hasPrefix("claude") ? claudeStaleInterval : defaultStaleInterval
         return Date().timeIntervalSince(updatedDate) > threshold
     }
 
@@ -112,6 +109,19 @@ private struct UsageWindow: Decodable, Identifiable {
     let remaining: Double?
     let resetsAt: String?
     let resetDate: String?
+
+    var remainingPercent: Double? {
+        usedPercent.map { max(0, min(100, 100 - $0)) }
+    }
+
+    // Past its reset time, or past the end of a day-only reset date.
+    func isExpired(now: Date = Date()) -> Bool {
+        if let day = parseResetDate(resetDate),
+           let end = Calendar.current.date(byAdding: .day, value: 1, to: day) {
+            return end <= now
+        }
+        return parseISO8601(resetsAt).map { $0 <= now } ?? false
+    }
 }
 
 private struct UsageBalance: Decodable {
@@ -210,6 +220,8 @@ private final class UsageStore: ObservableObject {
     @Published var collectorFailure: String?
 
     private let endpoint = URL(string: "http://127.0.0.1:4317/api/usage")!
+    private let refreshEndpoint = URL(string: "http://127.0.0.1:4317/api/refresh")!
+    private let museEndpoint = URL(string: "http://127.0.0.1:4317/muse")!
     private var refreshTimer: Timer?
     private let defaults = UserDefaults.standard
     private var deliveredNotificationCycles: Set<String> = []
@@ -229,26 +241,19 @@ private final class UsageStore: ObservableObject {
         return providers.isEmpty || errorMessage != nil ? collectorFailure : nil
     }
 
-    var menuTitle: String {
-        let summaries = providers
-            .prefix(3)
-            .map { provider in
-                let value: String
-                if provider.state != "ready" {
-                    value = "ERR"
-                } else if let percent = provider.primaryWindow?.usedPercent {
-                    let staleSuffix = provider.isStale ? "*" : ""
-                    value = "\(Int(percent.rounded()))%\(staleSuffix)"
-                } else {
-                    value = "—"
-                }
-                return "\(provider.shortName.uppercased()) \(value)"
-            }
+    // The collector finishes a cycle every minute; several missed cycles mean
+    // it is stuck, even though it still answers with its last snapshot.
+    var collectorIsStalled: Bool {
+        guard let lastUpdated else { return false }
+        return Date().timeIntervalSince(lastUpdated) > 5 * 60
+    }
 
-        if summaries.isEmpty {
-            return activeCollectorFailure == nil ? "AI —" : "AI ⚠"
-        }
-        return summaries.joined(separator: " · ")
+    // Ready sources first, so a failed one never pushes a working one out of
+    // the menu bar's six slots.
+    var menuBarProviders: [UsageProvider] {
+        let ready = providers.filter { $0.state == "ready" && $0.primaryWindow != nil }
+        let rest = providers.filter { !($0.state == "ready" && $0.primaryWindow != nil) }
+        return Array((ready + rest).prefix(6))
     }
 
     init() {
@@ -297,16 +302,24 @@ private final class UsageStore: ObservableObject {
         }
     }
 
-    func refresh() async {
+    // The timer reads the collector's latest snapshot. `collect` asks the
+    // collector to run a cycle first (the refresh button and connection
+    // changes), which also retries sources that were waiting on a sign-in.
+    func refresh(collect: Bool = false) async {
         if ProcessInfo.processInfo.arguments.contains("--demo") { loadDemo(); return }
-        guard !isRefreshing else { return }
+        if isRefreshing {
+            guard collect else { return }
+            // A requested collection must not be dropped behind a timer read.
+            while isRefreshing { try? await Task.sleep(nanoseconds: 100_000_000) }
+        }
         isRefreshing = true
         defer { isRefreshing = false }
 
         do {
-            var request = URLRequest(url: endpoint)
+            var request = URLRequest(url: collect ? refreshEndpoint : endpoint)
+            request.httpMethod = collect ? "POST" : "GET"
             request.cachePolicy = .reloadIgnoringLocalCacheData
-            request.timeoutInterval = 8
+            request.timeoutInterval = collect ? 90 : 8
             let (data, response) = try await URLSession.shared.data(for: request)
             guard let httpResponse = response as? HTTPURLResponse,
                   (200..<300).contains(httpResponse.statusCode) else {
@@ -314,33 +327,24 @@ private final class UsageStore: ObservableObject {
             }
             let payload = try JSONDecoder().decode(UsagePayload.self, from: data)
             providers = payload.providers
-            lastUpdated = parseISO8601(payload.generatedAt) ?? Date()
+            // Stays nil until the collector has finished its first cycle.
+            lastUpdated = parseISO8601(payload.generatedAt)
             errorMessage = payload.skippedProviderCount > 0
                 ? "Skipped \(payload.skippedProviderCount) provider(s) with incompatible data"
                 : nil
             evaluateQuotaNotifications()
         } catch {
             NSLog("Usage menu refresh failed: %@", String(describing: error))
-            if error is DecodingError {
-                errorMessage = "Collector data format incompatible; showing last data"
-            } else {
-                errorMessage = "Local collector disconnected; showing last data"
-            }
+            let kept = providers.isEmpty ? "" : "; showing last data"
+            errorMessage = error is DecodingError
+                ? "Collector data format incompatible\(kept)"
+                : "Local collector disconnected\(kept)"
         }
     }
 
     func applyConnections() async {
-        var request = URLRequest(url: endpoint.deletingLastPathComponent().appendingPathComponent("refresh"))
-        request.httpMethod = "POST"
-        request.timeoutInterval = 90
-        do {
-            let (_, response) = try await URLSession.shared.data(for: request)
-            guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.badServerResponse) }
-            await refresh()
-            WidgetCenter.shared.reloadTimelines(ofKind: "AIUsageQuotaPools")
-        } catch {
-            errorMessage = "Settings saved. The collector could not refresh yet."
-        }
+        await refresh(collect: true)
+        WidgetCenter.shared.reloadTimelines(ofKind: "AIUsageQuotaPools")
     }
 
     func openDashboard() {
@@ -354,8 +358,7 @@ private final class UsageStore: ObservableObject {
     }
 
     func openMuseUsage() {
-        NSWorkspace.shared.open(endpoint.deletingLastPathComponent()
-            .deletingLastPathComponent().appendingPathComponent("muse"))
+        NSWorkspace.shared.open(museEndpoint)
     }
 
     func setLaunchAtLogin(_ enabled: Bool) {
@@ -444,7 +447,7 @@ private final class UsageStore: ObservableObject {
         var keysChanged = false
 
         for provider in providers where provider.state == "ready" && !provider.isStale {
-            for window in provider.windows {
+            for window in provider.windows where !window.isExpired() {
                 guard let percent = window.usedPercent else { continue }
                 let prefix = "\(provider.id):\(window.id):\(notificationThreshold):"
 
@@ -460,8 +463,7 @@ private final class UsageStore: ObservableObject {
                     continue
                 }
 
-                let cycle = window.resetsAt ?? "until-below-threshold"
-                let key = "\(prefix)\(cycle)"
+                let key = "\(prefix)\(notificationCycle(window))"
                 guard
                     !deliveredNotificationCycles.contains(key),
                     !pendingNotificationKeys.contains(key)
@@ -598,6 +600,7 @@ private struct MenuBarPanel: View {
                     .foregroundStyle(
                         store.errorMessage == nil
                             && store.activeCollectorFailure == nil
+                            && !store.collectorIsStalled
                             ? Color.secondary
                             : Color.orange
                     )
@@ -607,7 +610,7 @@ private struct MenuBarPanel: View {
             Spacer()
 
             Button {
-                Task { await store.refresh() }
+                Task { await store.refresh(collect: true) }
             } label: {
                 Image(systemName: "arrow.clockwise")
                     .frame(width: 28, height: 28)
@@ -633,8 +636,13 @@ private struct MenuBarPanel: View {
             return collectorFailure
         }
         if let errorMessage = store.errorMessage { return errorMessage }
-        guard let lastUpdated = store.lastUpdated else { return "Contacting local collector…" }
-        return "Collector \(freshnessText(lastUpdated))"
+        // This is the time of the collector's last cycle, not of any reading;
+        // each card carries its own reading time.
+        guard let lastUpdated = store.lastUpdated else { return "Collector is starting…" }
+        if store.collectorIsStalled {
+            return "Collector stalled · last cycle \(shortDateTime(lastUpdated))"
+        }
+        return "Collector running"
     }
 
     private var emptyState: some View {
@@ -647,7 +655,9 @@ private struct MenuBarPanel: View {
             Text(
                 store.activeCollectorFailure
                     ?? store.errorMessage
-                    ?? "Run npm run local first"
+                    ?? (store.lastUpdated == nil
+                        ? "Waiting for the collector’s first reading…"
+                        : "Turn on a source in Connections")
             )
                 .font(.system(size: 10))
                 .foregroundStyle(.secondary)
@@ -677,14 +687,14 @@ private struct MenuBarPanel: View {
                 Toggle("Menu bar", isOn: $showMenuBar)
                     .toggleStyle(.switch).controlSize(.mini)
                 Picker(
-                    "Threshold",
+                    "Alert at",
                     selection: Binding(
                         get: { store.notificationThreshold },
                         set: { store.setNotificationThreshold($0) }
                     )
                 ) {
                     ForEach(notificationThresholdOptions, id: \.self) { threshold in
-                        Text("\(threshold)%").tag(threshold)
+                        Text("\(threshold)% used").tag(threshold)
                     }
                 }
                 .pickerStyle(.menu)
@@ -737,6 +747,13 @@ private struct MenuBarPanel: View {
                     .toggleStyle(.switch).controlSize(.mini)
                     .help("Right-click the desktop and choose Edit Widgets to add, resize, or remove AI Usage Dashboard. Turning updates off hides quota readings.")
             }
+            if let issue = preferences.issue {
+                Text(issue)
+                    .font(.system(size: 9))
+                    .foregroundStyle(.orange)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
             if let launchAtLoginMessage = store.launchAtLoginMessage {
                 Text(launchAtLoginMessage)
                     .font(.system(size: 9))
@@ -761,15 +778,13 @@ private struct CompactQuotaCard: View {
     @State private var showDetails = false
     @Environment(\.colorScheme) private var colorScheme
 
-    private var title: String { provider.name }
-
     private var accent: Color { providerQuotaTint(provider, dark: colorScheme == .dark) }
 
     private var quotaDescription: String {
-        guard let window = provider.primaryWindow, let used = window.usedPercent else {
+        guard let window = provider.primaryWindow, let remaining = window.remainingPercent else {
             return "\(summaryValue) \(summaryLabel), \(quotaResetCaption(provider))"
         }
-        return "\(window.label), \(formatPercent(max(0, 100 - used))) remaining, \(quotaResetCaption(provider))"
+        return "\(window.label), \(formatPercent(remaining)) remaining, \(quotaResetCaption(provider)), \(freshness)"
     }
 
     var body: some View {
@@ -778,7 +793,7 @@ private struct CompactQuotaCard: View {
                 HStack(spacing: 8) {
                     ProviderLogo(provider: provider, size: 28)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(title).font(.system(size: 12, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.88)
+                        Text(provider.name).font(.system(size: 12, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.88)
                         Text(provider.plan ?? "Usage")
                             .font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
                     }
@@ -786,8 +801,10 @@ private struct CompactQuotaCard: View {
                     Circle().fill(providerHealthColor(provider)).frame(width: 7, height: 7)
                 }
 
-                if let window = provider.primaryWindow, let used = window.usedPercent {
-                    quotaSummary(window, used: used)
+                if let window = provider.primaryWindow, let remaining = window.remainingPercent {
+                    // An old reading stays visible but must not look current.
+                    quotaSummary(window, remaining: remaining)
+                        .opacity(provider.isStale ? 0.45 : 1)
                 } else {
                     HStack(alignment: .firstTextBaseline, spacing: 5) {
                         Text(summaryValue).font(.system(size: 25, weight: .semibold)).monospacedDigit()
@@ -827,9 +844,9 @@ private struct CompactQuotaCard: View {
         }
         .buttonStyle(.plain)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(title), \(quotaDescription)")
+        .accessibilityLabel("\(provider.name), \(quotaDescription)")
         .accessibilityHint("Open quota and token details")
-        .help("View \(title) quota windows, tokens, and collection details")
+        .help("View \(provider.name) quota windows, tokens, and collection details")
         .popover(isPresented: $showDetails, arrowEdge: .trailing) {
             VStack(spacing: 0) {
                 HStack {
@@ -845,9 +862,9 @@ private struct CompactQuotaCard: View {
         }
     }
 
-    private func quotaSummary(_ window: UsageWindow, used: Double) -> some View {
+    private func quotaSummary(_ window: UsageWindow, remaining: Double) -> some View {
         HStack(spacing: 8) {
-            QuotaRing(remaining: 100 - used, accent: accent)
+            QuotaRing(remaining: remaining, accent: accent)
                 .frame(width: 42, height: 42)
 
             VStack(alignment: .leading, spacing: 4) {
@@ -857,30 +874,25 @@ private struct CompactQuotaCard: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.82)
 
-                HStack(spacing: 6) {
-                    quotaFigure("Remaining", max(0, 100 - used), color: accent)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(formatPercent(remaining))
+                        .font(.system(size: 17, weight: .semibold))
+                        .monospacedDigit()
+                        .foregroundStyle(accent)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.68)
+                    Text("Remaining").font(.system(size: 9)).foregroundStyle(.secondary)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
     }
 
-    private func quotaFigure(_ label: String, _ percent: Double, color: Color) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(formatPercent(percent))
-                .font(.system(size: 17, weight: .semibold))
-                .monospacedDigit()
-                .foregroundStyle(color)
-                .lineLimit(1)
-                .minimumScaleFactor(0.68)
-            Text(label).font(.system(size: 9)).foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
     private var freshness: String {
         if provider.state != "ready" { return provider.sourceKind == "manual" ? "Awaiting entry" : "Unavailable" }
-        if provider.isStale { return "Stale" }
-        guard let date = provider.updatedDate else { return "Waiting" }
+        guard let date = provider.updatedDate else { return provider.isStale ? "Stale" : "Waiting" }
+        // Say how old a stale reading is; the word alone hides a two-day gap.
+        if provider.isStale { return "Stale · read \(shortDateTime(date))" }
         return provider.sourceKind == "manual" ? "Updated \(localDateTime(date))" : freshnessText(date)
     }
 
@@ -894,15 +906,16 @@ private struct CompactQuotaCard: View {
         if provider.id == "antigravity",
            let window = provider.windows.first(where: { $0.id != provider.primaryWindow?.id }),
            let used = window.usedPercent {
-            return "\(antigravityGroup(window)) \(formatPercent(100 - used)) left"
+            return "\(antigravityGroup(window)) \(formatPercent(max(0, 100 - used))) left"
         }
         if provider.id == "grok-bot", let balance = provider.balance {
             return "\(balance.label) \(formatBalance(balance))"
         }
         if let window = provider.windows.first(where: {
-            $0.id != provider.primaryWindow?.id && ($0.id.contains("five_hour") || $0.durationSeconds == 18_000) && $0.usedPercent != nil
+            $0.id != provider.primaryWindow?.id && ($0.id.contains("five_hour") || $0.durationSeconds == 18_000)
+                && $0.usedPercent != nil && !$0.isExpired()
         }) {
-            return "5 hours \(formatPercent(window.usedPercent.map { 100 - $0 })) left"
+            return "5 hours \(formatPercent(window.remainingPercent)) left"
         }
         if let token = provider.tokenUsage, let total = token.totalTokens {
             return "\(menuTokenCaption(basis: token.basis, period: token.periodId))\(formatTokens(total)) tokens"
@@ -1020,43 +1033,6 @@ private struct AppMark: View {
     }
 }
 
-private struct ProviderSummaryStrip: View {
-    let providers: [UsageProvider]
-
-    var body: some View {
-        HStack(spacing: 8) {
-            ForEach(providers) { provider in
-                HStack(spacing: 7) {
-                    ProviderLogo(provider: provider, size: 26)
-
-                    VStack(alignment: .leading, spacing: 2) {
-                        HStack(spacing: 4) {
-                            Text(provider.shortName.uppercased())
-                                .font(.system(size: 9, weight: .semibold))
-                            Circle()
-                                .fill(providerHealthColor(provider))
-                                .frame(width: 5, height: 5)
-                        }
-                        Text(formatPercent(provider.primaryWindow?.usedPercent.map { 100 - $0 }))
-                            .font(.system(size: 14, weight: .semibold, design: .rounded))
-                            .monospacedDigit()
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(8)
-                .background(
-                    Color.primary.opacity(0.04),
-                    in: RoundedRectangle(cornerRadius: 11, style: .continuous)
-                )
-                .accessibilityElement(children: .combine)
-                .accessibilityLabel(
-                    "\(provider.name), \(formatPercent(provider.primaryWindow?.usedPercent))"
-                )
-            }
-        }
-    }
-}
-
 private struct ProviderRow: View {
     let provider: UsageProvider
     @Environment(\.colorScheme) private var colorScheme
@@ -1112,8 +1088,7 @@ private struct ProviderRow: View {
                     ForEach(provider.windows) { window in
                         WindowRow(window: window, accent: accent,
                                   reportPace: provider.readings?.isEmpty != false && !["grok-bot", "antigravity"].contains(provider.id),
-                                  showReset: provider.id != "cursor" && (provider.id != "antigravity" || window.resetsAt != nil),
-                                  fractionDigits: 0)
+                                  showReset: provider.id != "cursor" && (provider.id != "antigravity" || window.resetsAt != nil))
                     }
                 }
             }
@@ -1148,10 +1123,12 @@ private struct ProviderRow: View {
             }
 
             if let message = provider.message, !message.isEmpty {
-                Label(message, systemImage: "clock.badge.exclamationmark")
+                // A note on a healthy, current source is information, not a warning.
+                Label(message, systemImage: provider.isDegraded ? "clock.badge.exclamationmark" : "info.circle")
                     .font(.system(size: 9))
                     .foregroundStyle(
-                        provider.state == "ready" ? Color.orange : Color.red
+                        provider.state != "ready" ? Color.red
+                            : provider.isStale ? Color.orange : Color.secondary
                     )
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
@@ -1244,8 +1221,8 @@ private struct ProviderRow: View {
     }
 
     private var primaryValue: String {
-        if let percent = provider.primaryWindow?.usedPercent {
-            return "\(formatPercent(100 - percent)) left"
+        if let remaining = provider.primaryWindow?.remainingPercent {
+            return "\(formatPercent(remaining)) left"
         }
         if let balance = provider.balance {
             return formatBalance(balance)
@@ -1268,7 +1245,6 @@ private struct WindowRow: View {
     let accent: Color
     let reportPace: Bool
     let showReset: Bool
-    let fractionDigits: Int
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
@@ -1276,27 +1252,27 @@ private struct WindowRow: View {
                 Text(window.label)
                     .font(.system(size: 11, weight: .semibold))
                 Spacer()
-                if let percent = window.usedPercent {
-                    Text("\(formatPercent(100 - percent, fractionDigits: fractionDigits)) remaining")
+                if let remaining = window.remainingPercent {
+                    Text("\(formatPercent(remaining)) remaining")
                         .font(.system(size: 11, weight: .semibold))
                         .monospacedDigit()
                 }
             }
 
-            if let percent = window.usedPercent {
+            if let percent = window.usedPercent, let remaining = window.remainingPercent {
                 GeometryReader { geometry in
                     ZStack(alignment: .leading) {
                         Capsule().fill(Color.primary.opacity(0.15))
                         Capsule().fill(percent >= 85 ? .red : percent >= 70 ? .orange : accent)
-                            .frame(width: geometry.size.width * max(0, min(100, 100 - percent)) / 100)
+                            .frame(width: geometry.size.width * remaining / 100)
                     }
                 }
                 .frame(height: 8)
                 .accessibilityHidden(true)
             }
 
-            if let detail = quotaDetail {
-                Text(detail)
+            if let used = window.used, let limit = window.limit {
+                Text("\(formatCompactNumber(used)) / \(formatCompactNumber(limit))")
                     .font(.system(size: 11, weight: .medium))
                     .monospacedDigit()
             }
@@ -1319,13 +1295,6 @@ private struct WindowRow: View {
         .padding(10)
         .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 9))
         .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Color.primary.opacity(0.12), lineWidth: 1))
-    }
-
-    private var quotaDetail: String? {
-        let counts: String? = if let used = window.used, let limit = window.limit {
-            "\(formatCompactNumber(used)) / \(formatCompactNumber(limit))"
-        } else { nil }
-        return counts
     }
 }
 
@@ -1463,7 +1432,6 @@ private enum BrandAssets {
         "grok-bot": "grok",
         "cursor": "cursor",
         "antigravity": "antigravity-mark",
-        "gemini": "gemini",
     ]
     private static let palette: [String: [String]] = {
         for base in [Bundle.main.resourceURL?.appendingPathComponent("brands"), URL(fileURLWithPath: "public/brands", isDirectory: true)].compactMap({ $0 }) {
@@ -1479,7 +1447,17 @@ private enum BrandAssets {
         return Color(hex: hex) ?? .primary
     }
 
-    static func image(for providerID: String) -> NSImage? {
+    // Parsed once per mark; the cards and the menu bar ask on every redraw.
+    @MainActor private static var images: [String: NSImage?] = [:]
+
+    @MainActor static func image(for providerID: String) -> NSImage? {
+        if let cached = images[providerID] { return cached }
+        let image = loadImage(for: providerID)
+        images[providerID] = image
+        return image
+    }
+
+    private static func loadImage(for providerID: String) -> NSImage? {
         guard let name = names[providerID] else { return nil }
         let fileName = "\(name).svg"
         let candidates = [
@@ -1498,6 +1476,21 @@ private enum BrandAssets {
         }
         return NSImage(contentsOf: url)
     }
+}
+
+// Identifies a quota cycle for alert de-duplication. Providers report the same
+// reset a few milliseconds apart from poll to poll, so the reset is rounded to
+// the hour instead of being compared as text.
+private func notificationCycle(_ window: UsageWindow) -> String {
+    guard let reset = parseISO8601(window.resetsAt) else {
+        return window.resetsAt ?? "until-below-threshold"
+    }
+    let hour = (reset.timeIntervalSince1970 / 3_600).rounded() * 3_600
+    return ISO8601DateFormatter().string(from: Date(timeIntervalSince1970: hour))
+}
+
+private func shortDateTime(_ date: Date) -> String {
+    date.formatted(.dateTime.month(.abbreviated).day().hour().minute())
 }
 
 private func freshnessText(_ date: Date) -> String {
@@ -1983,6 +1976,9 @@ private func launchBundledCollector(
     process.environment = ProcessInfo.processInfo.environment.merging([
         "USAGE_HUB_HOST": "127.0.0.1",
         "USAGE_HUB_PORT": "4317",
+        // Lets the collector stop itself if this app is killed without the
+        // chance to stop it, so a later launch never adopts stale code.
+        "USAGE_HUB_OWNER_PID": String(ProcessInfo.processInfo.processIdentifier),
     ]) { _, bundledValue in bundledValue }
     process.standardOutput = logHandle ?? FileHandle.nullDevice
     process.standardError = logHandle ?? FileHandle.nullDevice
@@ -2050,7 +2046,8 @@ private struct WidgetPoolDetail: View {
                     ProviderRow(provider: provider)
                 }.padding(16)
             } else {
-                Text(store.isRefreshing ? "Loading quota pool…" : "This quota pool is no longer available.")
+                Text(store.isRefreshing || store.lastUpdated == nil
+                    ? "Loading quota pool…" : "This quota pool is no longer available.")
                     .padding()
             }
         }.frame(minWidth: 380, minHeight: 320)
@@ -2069,6 +2066,12 @@ private final class UsageMenuBarDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private var popover: NSPopover?
     private var statusUpdateCancellable: AnyCancellable?
+
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        // The dashboard window is opened on every launch; do not also bring
+        // back whatever windows were open at the last quit.
+        UserDefaults.standard.register(defaults: ["NSQuitAlwaysKeepsWindows": false])
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         if !ProcessInfo.processInfo.arguments.contains("--demo") {
@@ -2165,10 +2168,21 @@ private final class UsageMenuBarDelegate: NSObject, NSApplicationDelegate {
         updateStatusItem()
     }
 
+    // The panel has exactly one window. SwiftUI still requires a scene, and
+    // macOS can open that scene's Settings window on its own (Command-comma,
+    // or restoring it at launch), which used to put a second copy of the
+    // panel on screen. Any such window is closed and the dashboard shown.
+    fileprivate func replaceSettingsWindowWithDashboard() {
+        for window in NSApp.windows where window.identifier?.rawValue == "com_apple_SwiftUI_Settings_window" {
+            window.close()
+        }
+        if !ProcessInfo.processInfo.arguments.contains("--demo") { showDashboard() }
+    }
+
     private func showDashboard() {
         if dashboardWindow == nil {
             let window = NSWindow(contentViewController: NSHostingController(rootView: MenuBarPanel(store: store)))
-            window.title = "AI Usage Dashboard Settings"
+            window.title = "AI Usage Dashboard"
             window.styleMask = [.titled, .closable, .miniaturizable]
             window.isReleasedWhenClosed = false
             window.center()
@@ -2279,11 +2293,11 @@ private final class UsageMenuBarDelegate: NSObject, NSApplicationDelegate {
     private func updateStatusItem() {
         guard let button = statusItem?.button else { return }
         let font = NSFont.monospacedDigitSystemFont(ofSize: 12.5, weight: .semibold)
-        let values = store.providers.prefix(6).map { provider -> (UsageProvider, String) in
+        let values = store.menuBarProviders.map { provider -> (UsageProvider, String) in
             let value = provider.state == "ready"
-                ? provider.primaryWindow?.usedPercent.map { "\(Int((100 - $0).rounded()))%" } ?? "—"
+                ? provider.primaryWindow?.remainingPercent.map { "\(Int($0.rounded()))%" } ?? "—"
                 : "—"
-            return (provider, value + (provider.isStale ? "*" : ""))
+            return (provider, value + (provider.state == "ready" && provider.isStale ? "*" : ""))
         }
         let width = values.reduce(CGFloat(8)) { total, item in
             total + 18 + 4 + (item.1 as NSString).size(withAttributes: [.font: font]).width + 10
@@ -2296,7 +2310,12 @@ private final class UsageMenuBarDelegate: NSObject, NSApplicationDelegate {
                 ("AI" as NSString).draw(at: NSPoint(x: x, y: 4), withAttributes: [.font: font, .foregroundColor: NSColor.labelColor])
             }
             for (provider, value) in values {
-                (BrandAssets.image(for: provider.id) ?? NSImage(systemSymbolName: "chart.bar.fill", accessibilityDescription: provider.name))?.draw(in: NSRect(x: x, y: 3, width: 18, height: 18))
+                let mark = NSRect(x: x, y: 3, width: 18, height: 18)
+                (BrandAssets.image(for: provider.id) ?? NSImage(systemSymbolName: "chart.bar.fill", accessibilityDescription: provider.name))?.draw(in: mark)
+                // The marks are single-colour; tint them like the text so they
+                // stay visible on a dark menu bar.
+                NSColor.labelColor.set()
+                mark.fill(using: .sourceAtop)
                 x += 22
                 let color: NSColor = provider.state != "ready" ? .systemRed : provider.isStale ? .systemOrange : .labelColor
                 (value as NSString).draw(at: NSPoint(x: x, y: 4), withAttributes: [.font: font, .foregroundColor: color])
@@ -2308,8 +2327,8 @@ private final class UsageMenuBarDelegate: NSObject, NSApplicationDelegate {
         button.attributedTitle = NSAttributedString(string: "")
         button.image = image
         button.imagePosition = .imageOnly
-        button.toolTip = store.providers.map { "\($0.name): \(formatPercent($0.primaryWindow?.usedPercent.map { 100 - $0 })) left\($0.isStale ? " (stale)" : "")" }.joined(separator: "\n")
-        button.setAccessibilityLabel(button.toolTip ?? store.menuTitle)
+        button.toolTip = store.providers.map { "\($0.name): \(formatPercent($0.primaryWindow?.remainingPercent)) left\($0.isStale ? " (stale)" : "")" }.joined(separator: "\n")
+        button.setAccessibilityLabel(store.providers.isEmpty ? "AI Usage Dashboard" : button.toolTip)
         statusItem?.length = NSStatusItem.variableLength
     }
 }
@@ -2321,7 +2340,12 @@ private struct UsageMenuBarApp: App {
 
     var body: some Scene {
         Settings {
-            MenuBarPanel(store: appDelegate.store)
+            // Never shown: see replaceSettingsWindowWithDashboard().
+            Color.clear
+                .frame(width: 1, height: 1)
+                .onAppear {
+                    DispatchQueue.main.async { appDelegate.replaceSettingsWindowWithDashboard() }
+                }
         }
     }
 }

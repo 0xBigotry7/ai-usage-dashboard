@@ -20,6 +20,11 @@ the version links below resolve once their tags are pushed.
 - Isolated `--demo` mode, reproducible synthetic native screenshot, bilingual
   documentation, and presentation regression checks. No private collectors,
   remote-host configuration, or credentials are included.
+- Optional `USAGE_HUB_CLAUDE_BIN`: when the Claude Code sign-in used for
+  account usage has expired, the collector lets Claude Code renew it by
+  sending one minimal request. The collector never uses the refresh token.
+- `collector/claude-statusline.mjs` ships with the collector and writes its
+  snapshot to the same path the collector is configured to read.
 
 ### Fixed
 
@@ -34,6 +39,24 @@ the version links below resolve once their tags are pushed.
   child exits restart with bounded backoff, loopback health checks recover a
   missing listener, and a healthy external collector on port 4317 is never
   duplicated. App shutdown cancels pending restarts.
+
+- Readings keep the time they were taken. A Claude status-line snapshot used
+  as a fallback no longer carries the time of the poll, so an old reading is
+  marked stale in the web dashboard, the menu bar app and the widget instead
+  of appearing current. The cloud validator no longer replaces a missing time
+  with "now" or a non-numeric percentage with zero.
+- A source that is not ready is never counted or labelled as live, and a
+  window past its reset is no longer shown as the current figure.
+- The web dashboard re-evaluates ages and staleness on a clock, so a page
+  that cannot reach the collector stops showing "Live". A failed history
+  request no longer holds back fresh usage.
+- Cursor desktop sign-ins that are encrypted at rest are reported as
+  unreadable rather than as signed out. No attempt is made to decrypt them.
+- macOS: the panel opens in one window instead of two, connection settings
+  that the collector accepts no longer block saving, quota alerts are not
+  repeated on every poll, the refresh button asks the collector to collect,
+  and a collector whose app was killed stops instead of being adopted by the
+  next launch.
 
 ## [0.10.2] - 2026-08-04
 

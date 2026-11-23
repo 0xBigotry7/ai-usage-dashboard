@@ -18,17 +18,25 @@ const CLAUDE = {
   accent: "#D97757",
 };
 
-function baseProvider(updatedAt) {
+const FABLE = {
+  id: "claude-fable",
+  name: "Claude Fable",
+  shortName: "CF",
+  accent: "#D97757",
+};
+
+const LOGS_SOURCE = "Local Claude Code session logs";
+const ENDPOINT_SOURCE = "Claude usage endpoint";
+const STATUS_LINE_SOURCE = "Claude Code status line";
+
+function baseProvider(identity, plan) {
   return {
-    id: CLAUDE.id,
-    name: CLAUDE.name,
-    shortName: CLAUDE.shortName,
-    accent: CLAUDE.accent,
-    plan: null,
-    source: "Local Claude Code session logs",
-    sourceKind: "session_logs",
+    id: identity.id,
+    name: identity.name,
+    shortName: identity.shortName,
+    accent: identity.accent,
+    plan,
     host: hostname(),
-    updatedAt,
     windows: [],
     balance: null,
     tokenUsage: null,
@@ -36,45 +44,80 @@ function baseProvider(updatedAt) {
   };
 }
 
-export async function collectClaudeCodeUsage(env = process.env) {
-  const updatedAt = new Date().toISOString();
-  const quotaPath = env.USAGE_HUB_CLAUDE_QUOTA_FILE?.trim();
-  const quota = await readClaudeQuota(quotaPath);
-  const hasLogs = existsSync(claudeProjectsDir(env));
-  const provider = baseProvider(updatedAt);
-  // The account endpoint is fresher than the status-line snapshot (which only
-  // moves while a terminal session is open), so it wins when it answers.
-  const oauth = await getClaudeOAuthUsage(env);
-  const live = oauth?.ok && oauth.windows.length > 0 ? oauth : null;
-  provider.plan =
-    (await readClaudePlanName(env)) ??
-    planLabelFromSubscription(oauth?.subscriptionType);
-  if (live) {
-    provider.windows = live.windows;
-    provider.source = hasLogs
-      ? "Claude usage endpoint and local logs"
-      : "Claude usage endpoint";
-    provider.sourceKind = "oauth_usage";
-  } else if (quota) {
-    provider.windows = quota.windows;
-    provider.source = hasLogs
-      ? "Claude Code status line and local logs"
-      : "Claude Code status line";
-  }
-  const quotaMessage = live
-    ? `Claude subscription quota read from the Claude usage endpoint at ${new Date(live.fetchedAt).toLocaleString()}.`
-    : quota
-    ? `Claude subscription quota captured by Claude Code at ${new Date(quota.capturedAt).toLocaleString()}.`
-    : quotaPath
-      ? "Waiting for subscription quota from a signed-in Claude Code session with the Usage Dashboard status line."
-      : null;
+async function planName(env, oauth) {
+  return (await readClaudePlanName(env)) ?? planLabelFromSubscription(oauth?.subscriptionType);
+}
 
-  if (!hasLogs && !quota && !live) {
+// A lapsed or missing sign-in is not a fault that a quick retry can clear, so
+// only network and server trouble is marked retryable.
+function oauthFailure(oauth) {
+  const signIn = ["expired", "http_401", "http_403"].includes(oauth.reason);
+  const unconfigured = oauth.reason === "no_credentials";
+  return {
+    state: unconfigured ? "needs_configuration" : signIn ? "auth_error" : "error",
+    message: oauth.message,
+    retryable: !signIn && !unconfigured,
+  };
+}
+
+// Picks the subscription reading to show and records when it was taken. The
+// account endpoint wins when it answers; the status-line snapshot only moves
+// while a terminal session is open, so it is the fallback. `readAt` becomes
+// the card's `updatedAt`, which is what the dashboards use to mark a reading
+// as stale, so it must be the time of the reading and never the time of the
+// poll.
+function subscriptionQuota(oauth, snapshot) {
+  if (oauth?.ok && oauth.windows.length > 0) {
+    return {
+      windows: oauth.windows,
+      readAt: oauth.fetchedAt,
+      source: ENDPOINT_SOURCE,
+      sourceKind: "oauth_usage",
+      note: null,
+    };
+  }
+  const unavailable = oauth && !oauth.ok ? oauth.message : null;
+  if (snapshot) {
+    return {
+      windows: snapshot.windows,
+      readAt: snapshot.capturedAt,
+      source: STATUS_LINE_SOURCE,
+      sourceKind: "status_line",
+      note: unavailable && `${unavailable} Showing the last status-line reading.`,
+    };
+  }
+  return { windows: [], readAt: null, source: null, sourceKind: "session_logs", note: unavailable };
+}
+
+export async function collectClaudeCodeUsage(env = process.env) {
+  const quotaPath = env.USAGE_HUB_CLAUDE_QUOTA_FILE?.trim();
+  const [oauth, snapshot] = await Promise.all([
+    getClaudeOAuthUsage(env),
+    readClaudeQuota(quotaPath),
+  ]);
+  const quota = subscriptionQuota(oauth, snapshot);
+  const hasQuota = quota.windows.length > 0;
+  const hasLogs = existsSync(claudeProjectsDir(env));
+  const provider = {
+    ...baseProvider(CLAUDE, await planName(env, oauth)),
+    source: !quota.source
+      ? LOGS_SOURCE
+      : hasLogs ? `${quota.source} and local logs` : quota.source,
+    sourceKind: quota.sourceKind,
+    updatedAt: quota.readAt ?? new Date().toISOString(),
+    windows: quota.windows,
+  };
+  const waiting = !hasQuota && quotaPath
+    ? "Waiting for subscription quota from a signed-in Claude Code session with the Usage Dashboard status line."
+    : null;
+
+  if (!hasLogs && !hasQuota) {
     return {
       ...provider,
-      state: "needs_configuration",
+      state: oauth && !oauth.ok ? oauthFailure(oauth).state : "needs_configuration",
       message:
-        quotaMessage ??
+        quota.note ??
+        waiting ??
         "Claude Code session logs not found on this machine. Run Claude Code once to create them, or set CLAUDE_CONFIG_DIR if its data directory is elsewhere.",
     };
   }
@@ -84,8 +127,8 @@ export async function collectClaudeCodeUsage(env = process.env) {
     return {
       ...provider,
       state: "ready",
-      message: quotaMessage ?? (
-        estimates.length === 0
+      message: quota.note ?? waiting ?? (
+        !hasQuota && estimates.length === 0
           ? "No Claude Code token usage recorded on this machine in the last 7 days."
           : null
       ),
@@ -101,10 +144,10 @@ export async function collectClaudeCodeUsage(env = process.env) {
     );
     return {
       ...provider,
-      state: quota || live ? "ready" : "error",
-      source: live ? "Claude usage endpoint" : quota ? "Claude Code status line" : provider.source,
+      state: hasQuota ? "ready" : "error",
+      source: quota.source ?? provider.source,
       message: [
-        quotaMessage,
+        quota.note,
         "Could not read the Claude Code session logs on this machine.",
       ].filter(Boolean).join(" "),
       retryable: true,
@@ -112,34 +155,15 @@ export async function collectClaudeCodeUsage(env = process.env) {
   }
 }
 
-const FABLE = {
-  id: "claude-fable",
-  name: "Claude Fable",
-  shortName: "CF",
-  accent: "#D97757",
-};
-
 // Fable has its own weekly allowance inside the plan; it is reported only by
 // the account usage endpoint, never by the status line.
 export async function collectClaudeFableUsage(env = process.env) {
-  const updatedAt = new Date().toISOString();
   const oauth = await getClaudeOAuthUsage(env);
   const base = {
-    id: FABLE.id,
-    name: FABLE.name,
-    shortName: FABLE.shortName,
-    accent: FABLE.accent,
-    plan:
-      (await readClaudePlanName(env)) ??
-      planLabelFromSubscription(oauth?.subscriptionType),
-    source: "Claude usage endpoint",
+    ...baseProvider(FABLE, await planName(env, oauth)),
+    source: ENDPOINT_SOURCE,
     sourceKind: "oauth_usage",
-    host: hostname(),
-    updatedAt,
-    windows: [],
-    balance: null,
-    tokenUsage: null,
-    tokenEstimates: [],
+    updatedAt: oauth?.fetchedAt ?? new Date().toISOString(),
   };
   if (!oauth) {
     return {
@@ -148,14 +172,7 @@ export async function collectClaudeFableUsage(env = process.env) {
       message: "Set USAGE_HUB_CLAUDE_OAUTH_USAGE=1 to read per-model Claude limits.",
     };
   }
-  if (!oauth.ok) {
-    return {
-      ...base,
-      state: oauth.reason === "no_credentials" ? "needs_configuration" : "error",
-      message: oauth.message,
-      retryable: oauth.reason !== "no_credentials",
-    };
-  }
+  if (!oauth.ok) return { ...base, ...oauthFailure(oauth) };
   const fable = oauth.scoped.find((entry) => /fable/i.test(entry.model));
   if (!fable) {
     return {
@@ -167,7 +184,6 @@ export async function collectClaudeFableUsage(env = process.env) {
   return {
     ...base,
     state: "ready",
-    updatedAt: oauth.fetchedAt ?? updatedAt,
     windows: [fable.window],
     message: "Separate weekly allowance for Fable inside the plan; not added to the Claude total.",
   };

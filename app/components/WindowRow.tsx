@@ -5,7 +5,7 @@ import {
   formatQuotaReset,
   formatResetDate,
 } from "../../lib/format";
-import type { ResolvedReset } from "../../lib/provider-selectors";
+import { isWindowExpired, type ResolvedReset } from "../../lib/provider-selectors";
 import type { WindowUsage } from "../../lib/usage-types";
 
 export function WindowRow({
@@ -21,6 +21,8 @@ export function WindowRow({
 }) {
   const remaining = clamp(100 - (window.usedPercent ?? 0));
   const hasReset = showReset && (window.resetDate || reset.resetsAt);
+  // Past its reset, the figure belongs to the previous cycle.
+  const expired = isWindowExpired(window);
   return (
     <div className={compact ? "window-row window-row--compact" : "window-row"}>
       {!compact ? <div className="window-row__top">
@@ -42,7 +44,7 @@ export function WindowRow({
         <span style={{ width: `${remaining}%` }} />
       </div> : null}
       {hasReset || window.limit !== null ? <div className="window-row__detail">
-        {hasReset ? <span>
+        {hasReset && expired ? <span>Reset passed · awaiting refresh</span> : hasReset ? <span>
           {reset.estimated ? "Estimated reset " : "Resets "}
           <time dateTime={window.resetDate ?? reset.resetsAt ?? undefined}>
             {window.resetDate ? formatResetDate(window.resetDate) : reset.resetsAt ? formatQuotaReset(reset.resetsAt) : null}

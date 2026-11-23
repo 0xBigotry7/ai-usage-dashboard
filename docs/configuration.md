@@ -53,20 +53,48 @@ No configuration is required. The adapter enables itself when
 `~/.claude/projects` exists and reads the local Claude Code session logs
 (`~/.claude/projects/**/*.jsonl`). Set `CLAUDE_CONFIG_DIR` if Claude Code
 stores its data elsewhere; the logs are then read from
-`$CLAUDE_CONFIG_DIR/projects`. No credential is read or written.
+`$CLAUDE_CONFIG_DIR/projects`. In this default mode no credential is read or
+written.
 
 Only the numeric per-message `usage` fields, model IDs, timestamps, and the
 record IDs needed for retry deduplication are parsed. Prompts, replies, and
 tool output are never read. Entries logged more than once for the same API
 call are deduplicated, and subagent turns are included. Observed totals are
 reported twice: once from local midnight and once for the trailing seven days.
-Claude Code exposes no documented quota endpoint, so this adapter shows
-observed tokens only and does not invent a quota window, percentage, or reset
-time. Disable it with:
+Claude Code exposes no documented quota endpoint, so by default this adapter
+shows observed tokens only and does not invent a quota window, percentage, or
+reset time. Disable the log estimate with:
 
 ```bash
 USAGE_HUB_CLAUDE_LOG_ESTIMATE=off npm run local
 ```
+
+#### Subscription quota (opt-in)
+
+Two optional sources add the plan's weekly and 5-hour percentages. Each
+reading carries the time it was taken, so a card that has not been refreshed
+is marked stale instead of looking current.
+
+1. **Account usage** — `USAGE_HUB_CLAUDE_OAUTH_USAGE=1` reads the access token
+   Claude Code keeps for the terminal CLI (macOS Keychain, or
+   `.credentials.json` elsewhere) and asks Claude's usage endpoint, the data
+   behind `/usage`. It also enables the separate Claude Fable card. The token
+   is only sent to that endpoint and is never stored or logged. It expires
+   after a few hours and only Claude Code can renew it. The Claude desktop app
+   keeps its own sign-in and does not renew this one.
+2. **Automatic renewal** — set `USAGE_HUB_CLAUDE_BIN` to the `claude`
+   executable and the collector lets Claude Code renew an expired sign-in by
+   sending one minimal request (one word to the smallest model, with tools,
+   plugins, hooks and session saving off). This uses a few hundred tokens at
+   most once per expiry; a failed attempt is retried after 30 minutes. The
+   collector never uses the refresh token itself. Without this setting the
+   card waits until Claude Code is next used in a terminal.
+3. **Status line** — the fallback when account usage is off or unavailable.
+   Point Claude Code's `statusLine` command at
+   `node <collector>/claude-statusline.mjs` and set
+   `USAGE_HUB_CLAUDE_QUOTA_FILE` to the snapshot path. The script reads that
+   same setting, so it always writes where the collector reads. It only runs
+   during terminal sessions.
 
 ### Kimi Code
 
@@ -231,6 +259,9 @@ and only credential-free normalized values are stored.
 | `KIMI_CODE_HOME` | local collector | Optional Kimi data directory |
 | `USAGE_HUB_CODEX_LOG_ESTIMATE` | local collector | Set to `off` to disable Codex local log estimation |
 | `USAGE_HUB_CLAUDE_LOG_ESTIMATE` | local collector | Set to `off` to disable Claude Code local log estimation |
+| `USAGE_HUB_CLAUDE_OAUTH_USAGE` | local collector | Set to `1` to read subscription quota from Claude's usage endpoint with the terminal CLI's sign-in |
+| `USAGE_HUB_CLAUDE_BIN` | local collector | Optional `claude` executable; lets Claude Code renew an expired sign-in with one minimal request |
+| `USAGE_HUB_CLAUDE_QUOTA_FILE` | local collector | Optional status-line snapshot path, shared by the collector and `collector/claude-statusline.mjs` |
 | `USAGE_HUB_PUSH_URL` | local collector | Hosted `/api/ingest` endpoint |
 | `USAGE_HUB_PUSH_TOKEN` | local collector | Hosted ingest bearer secret |
 | `USAGE_HUB_CLOUD_URL` | local collector | Optional hosted root URL for merging additional sanitized providers |

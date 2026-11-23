@@ -13,13 +13,15 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  let payload: { code?: string };
+  let payload: unknown;
   try {
-    payload = (await request.json()) as { code?: string };
+    payload = await request.json();
   } catch {
     return Response.json({ error: "invalid_json" }, { status: 400 });
   }
-  const code = payload.code?.trim() || "";
+  // A body of null, or a code that is not text, is a wrong code, not a crash.
+  const submitted = (payload as { code?: unknown } | null)?.code;
+  const code = typeof submitted === "string" ? submitted.trim() : "";
   if (!(await validateViewCode(code))) {
     return Response.json(
       { error: "invalid_view_code" },

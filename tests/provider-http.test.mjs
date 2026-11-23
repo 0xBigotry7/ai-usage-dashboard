@@ -1,6 +1,16 @@
 import assert from "node:assert/strict";
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
-import { normalizeCursorUsage, normalizeGrokBotUsage } from "../collector/providers/cursor.mjs";
+import { normalizeAntigravityUsage } from "../collector/providers/antigravity.mjs";
+import {
+  collectCursorUsage,
+  collectGrokBotUsage,
+  normalizeCursorUsage,
+  normalizeGrokBotUsage,
+} from "../collector/providers/cursor.mjs";
 import { collectDeepSeekBalance } from "../collector/providers/deepseek.mjs";
 import { collectGitHubCopilotUsage } from "../collector/providers/github-copilot.mjs";
 import { groupGrokSharedUsage, normalizeGrokBilling } from "../collector/providers/grok.mjs";
@@ -60,6 +70,50 @@ test("Grok groups only matching shared weeks and retains each source reading", (
   const otherWeek = { ...bot, sharedWeekStart: "2030-01-02T00:00:00.000Z" };
   assert.deepEqual(groupGrokSharedUsage([build, otherWeek, cursor], now), [build, otherWeek, cursor]);
   assert.deepEqual(groupGrokSharedUsage([build, bot, cursor], Date.parse(end)), [build, bot, cursor]);
+});
+
+test("Cursor reports an encrypted desktop sign-in as unreadable, not as signed out", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "usage-hub-cursor-"));
+  const path = join(dir, "state.vscdb");
+  const db = new DatabaseSync(path);
+  db.exec("CREATE TABLE ItemTable (key TEXT PRIMARY KEY, value BLOB)");
+  const save = db.prepare("INSERT OR REPLACE INTO ItemTable (key, value) VALUES ('cursorAuth/accessToken', ?)");
+  const env = { USAGE_HUB_CURSOR_DB: path };
+
+  save.run("0123456789abcdef012:v1:c2FtcGxlIGNpcGhlcnRleHQ=");
+  const cursor = await collectCursorUsage(env);
+  assert.equal(cursor.state, "error");
+  assert.equal(cursor.retryable, false);
+  assert.match(cursor.message, /encrypted on this Mac/);
+  const bot = await collectGrokBotUsage(env);
+  assert.equal(bot.state, "error");
+  assert.match(bot.message, /encrypted on this Mac.*Grok card still counts/);
+
+  // A missing or lapsed sign-in is still the user's to fix in Cursor.
+  save.run("");
+  assert.equal((await collectCursorUsage(env)).state, "auth_error");
+  const expired = ["e30", Buffer.from(JSON.stringify({ sub: "auth0|sample", exp: 1 })).toString("base64url"), "sig"].join(".");
+  save.run(expired);
+  assert.equal((await collectCursorUsage(env)).state, "auth_error");
+  db.close();
+  assert.equal((await collectCursorUsage({ USAGE_HUB_CURSOR_DB: join(dir, "missing.vscdb") })).state, "auth_error");
+});
+
+test("Antigravity rounds its percentages and only notes a missing reset when one is missing", () => {
+  const capturedAt = "2030-01-01T00:00:00.000Z";
+  const active = { id: "gemini-weekly", remainingFraction: 0.879712, resetTime: "2030-01-06T00:00:00Z" };
+  const used = normalizeAntigravityUsage({ capturedAt, windows: [active] });
+  assert.equal(used.windows[0].usedPercent, 12);
+  assert.equal(used.updatedAt, capturedAt);
+  assert.equal(used.message, null);
+  const untouched = normalizeAntigravityUsage({
+    capturedAt,
+    windows: [active, { id: "3p-weekly", remainingFraction: 1, resetTime: "2030-01-08T00:00:00Z" }],
+  });
+  assert.deepEqual(untouched.windows.map(({ id, resetsAt }) => [id, resetsAt]), [
+    ["3p_weekly", null], ["gemini_weekly", "2030-01-06T00:00:00.000Z"],
+  ]);
+  assert.match(untouched.message, /no active reset/);
 });
 
 test("github copilot adapter sends a real published GitHub API version", async () => {

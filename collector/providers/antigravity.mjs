@@ -4,7 +4,7 @@ import { homedir, hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import { providerError, readJson, toIsoTime } from "../shared.mjs";
+import { clampPercent, providerError, readJson, toIsoTime } from "../shared.mjs";
 
 const ANTIGRAVITY = {
   id: "antigravity", name: "Antigravity", shortName: "AG", accent: "#94b9ff",
@@ -38,7 +38,7 @@ function normalizeWindow(bucket) {
     id: id.replaceAll("-", "_"),
     label: `${group} · ${weekly ? "Weekly" : "5 hours"}`,
     durationSeconds, resetsAt,
-    usedPercent: (1 - remaining) * 100,
+    usedPercent: clampPercent((1 - remaining) * 100),
     used: null, limit: null, remaining: null,
   };
 }
@@ -54,7 +54,10 @@ export function normalizeAntigravityUsage(snapshot) {
     id: ANTIGRAVITY.id, name: ANTIGRAVITY.name, shortName: ANTIGRAVITY.shortName,
     accent: ANTIGRAVITY.accent, source: SOURCE, sourceKind: "cli", host: hostname(),
     state: "ready", plan: snapshot.plan ?? null, updatedAt, windows,
-    balance: null, message: "Fully available windows can have no active reset yet.",
+    balance: null,
+    message: windows.some((window) => !window.resetsAt)
+      ? "Fully available windows can have no active reset yet."
+      : null,
     tokenUsage: null,
   };
 }

@@ -11,8 +11,9 @@ import {
 import {
   getPeakWindow,
   getPreferredTokenUsage,
-  isProviderStale,
+  isWindowExpired,
   lookupReset,
+  providerHealth,
   providerRisk,
   providerStateLabel,
   type ResetLookup,
@@ -24,10 +25,13 @@ export const DisplayProviderTile = memo(function DisplayProviderTile({
   provider,
   resets,
   warningThreshold,
+  now,
 }: {
   provider: Provider;
   resets: ResetLookup;
   warningThreshold: number;
+  /** Ticking clock from useUsageData; ages and staleness follow it. */
+  now: number;
 }) {
   const windows = provider.windows
     .filter((window) => window.usedPercent !== null)
@@ -35,7 +39,8 @@ export const DisplayProviderTile = memo(function DisplayProviderTile({
   const usage = getPreferredTokenUsage(provider);
   const models = usage?.models.slice(0, 2) || [];
   const risk = providerRisk(provider, warningThreshold);
-  const stale = isProviderStale(provider);
+  const health = providerHealth(provider, now);
+  const stale = health === "stale";
   const peak = getPeakWindow(provider);
 
   return (
@@ -49,15 +54,17 @@ export const DisplayProviderTile = memo(function DisplayProviderTile({
           <ProviderLogo provider={provider} className="provider-logo--display" />
           <span>
             <strong>{provider.name}</strong>
-            <small>{provider.plan || providerStateLabel(provider)}</small>
+            <small>{provider.plan || providerStateLabel(provider, now)}</small>
           </span>
         </div>
         <span className="display-provider__state">
-          {stale
-            ? "STALE"
-            : peak && risk !== "normal"
-              ? `${peak.label} · low quota`
-              : "LIVE"}
+          {health === "unavailable"
+            ? "UNAVAILABLE"
+            : stale
+              ? "STALE"
+              : peak && risk !== "normal"
+                ? `${peak.label} · low quota`
+                : "LIVE"}
         </span>
       </header>
 
@@ -81,7 +88,7 @@ export const DisplayProviderTile = memo(function DisplayProviderTile({
                   <i style={{ width: `${remaining}%` }} />
                 </div>
                 <small>
-                  {window.resetDate ? `Resets ${formatResetDate(window.resetDate)}` : reset.resetsAt
+                  {isWindowExpired(window, now) ? "Reset passed · awaiting refresh" : window.resetDate ? `Resets ${formatResetDate(window.resetDate)}` : reset.resetsAt
                     ? `${reset.estimated ? "Est. reset" : "Resets"} ${formatQuotaReset(reset.resetsAt)}`
                     : "No reset reported"}
                 </small>
@@ -98,7 +105,7 @@ export const DisplayProviderTile = memo(function DisplayProviderTile({
         </div>
       ) : (
         <div className="display-no-metric">
-          <strong>{providerStateLabel(provider)}</strong>
+          <strong>{providerStateLabel(provider, now)}</strong>
           <span>
             {provider.message || "No displayable metrics from this source"}
           </span>
@@ -125,7 +132,7 @@ export const DisplayProviderTile = memo(function DisplayProviderTile({
           <span className="display-models__empty">No per-model stats yet</span>
         )}
         <span className="display-provider__freshness">
-          {formatAge(provider.updatedAt)}
+          {formatAge(provider.updatedAt, now)}
         </span>
       </footer>
     </article>

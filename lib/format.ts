@@ -40,9 +40,14 @@ export function formatBalance(value: number, unit: string) {
   return `${prefix}${formatNumber(value)}${suffix}`;
 }
 
-export function formatCountdown(resetsAt: string | null) {
+function validDate(value: string) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+export function formatCountdown(resetsAt: string | null, now = Date.now()) {
   if (!resetsAt) return "no reset time provided";
-  const difference = new Date(resetsAt).getTime() - Date.now();
+  const difference = new Date(resetsAt).getTime() - now;
   if (!Number.isFinite(difference)) return "reset time unknown";
   if (difference <= 0) return "awaiting refresh";
   const minutes = Math.max(1, Math.floor(difference / 60_000));
@@ -54,53 +59,54 @@ export function formatCountdown(resetsAt: string | null) {
   return `in ${restMinutes}m`;
 }
 
-export function formatResetClock(resetsAt: string | null) {
-  if (!resetsAt) return "time unknown";
-  return new Intl.DateTimeFormat(undefined, {
-    weekday: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(new Date(resetsAt));
-}
-
+// The date formatters return a dash for a time they cannot parse: Intl would
+// throw, and one bad timestamp must not blank the whole page.
 export function formatResetDate(resetDate: string) {
+  const date = validDate(resetDate);
+  if (!date) return "—";
   return new Intl.DateTimeFormat(undefined, {
     month: "short",
     day: "numeric",
     timeZone: "UTC",
-  }).format(new Date(resetDate));
+  }).format(date);
 }
 
 export function formatQuotaReset(resetsAt: string) {
+  const date = validDate(resetsAt);
+  if (!date) return "—";
   return new Intl.DateTimeFormat(undefined, {
     month: "short",
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
-  }).format(new Date(resetsAt));
+  }).format(date);
 }
 
 export function formatShortDate(value: string) {
+  const date = validDate(value);
+  if (!date) return "—";
   return new Intl.DateTimeFormat(undefined, {
     month: "numeric",
     day: "numeric",
-  }).format(new Date(value));
+  }).format(date);
 }
 
 export function formatUpdated(value: string | null) {
   if (!value) return "not connected yet";
+  const date = validDate(value);
+  if (!date) return "—";
   return new Intl.DateTimeFormat(undefined, {
     month: "numeric",
     day: "numeric",
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",
-  }).format(new Date(value));
+  }).format(date);
 }
 
-export function formatAge(value: string | null) {
+export function formatAge(value: string | null, now = Date.now()) {
   if (!value) return "time unknown";
-  const ageMs = Date.now() - new Date(value).getTime();
+  const ageMs = now - new Date(value).getTime();
   if (!Number.isFinite(ageMs)) return "unknown";
   if (ageMs < 0) return "just now";
   const minutes = Math.floor(ageMs / 60_000);

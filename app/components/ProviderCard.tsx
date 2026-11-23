@@ -15,9 +15,9 @@ import {
   getPreferredTokenUsage,
   getPrimaryWindow,
   getTokenEstimates,
-  isProviderStale,
   lookupReset,
   normalizeBars,
+  providerHealth,
   providerRisk,
   providerStateLabel,
   type ResetLookup,
@@ -32,11 +32,14 @@ export const ProviderCard = memo(function ProviderCard({
   history,
   resets,
   warningThreshold,
+  now,
 }: {
   provider: Provider;
   history: HistoryPoint[];
   resets: ResetLookup;
   warningThreshold: number;
+  /** Ticking clock from useUsageData; ages and staleness follow it. */
+  now: number;
 }) {
   const primary = getPrimaryWindow(provider);
   const fiveHour = provider.windows.find((window) => window.id === "five_hour");
@@ -46,7 +49,8 @@ export const ProviderCard = memo(function ProviderCard({
   const isReady = provider.state === "ready";
   const risk = providerRisk(provider, warningThreshold);
   const peakWindow = getPeakWindow(provider);
-  const stale = isProviderStale(provider);
+  // Only a ready source can be stale; a failed one says why it failed.
+  const stale = providerHealth(provider, now) === "stale";
   const isManual = provider.sourceKind === "manual";
   const isAntigravity = provider.id === "antigravity";
   const billingPeriod = provider.id === "cursor"
@@ -78,10 +82,10 @@ export const ProviderCard = memo(function ProviderCard({
         >
           <i />
           {stale
-            ? `Stale · ${formatAge(provider.updatedAt)}`
+            ? `Stale · ${formatAge(provider.updatedAt, now)}`
             : isReady && risk !== "normal" && peakWindow
               ? `${peakWindow.label} · low quota`
-              : providerStateLabel(provider)}
+              : providerStateLabel(provider, now)}
         </span>
       </header>
 
@@ -104,7 +108,7 @@ export const ProviderCard = memo(function ProviderCard({
               ) : keyReset.resetsAt ? (
                 <>
                   <time dateTime={keyReset.resetsAt}>{keyReset.estimated ? "≈ " : ""}{formatQuotaReset(keyReset.resetsAt)}</time>
-                  <small>{formatCountdown(keyReset.resetsAt)}</small>
+                  <small>{formatCountdown(keyReset.resetsAt, now)}</small>
                 </>
               ) : <strong>{isAntigravity ? "No active reset" : "Not reported"}</strong>}
             </div>
@@ -146,7 +150,7 @@ export const ProviderCard = memo(function ProviderCard({
         <div className="provider-action">
           <span aria-hidden="true">!</span>
           <div>
-            <strong>{providerStateLabel(provider)}</strong>
+            <strong>{providerStateLabel(provider, now)}</strong>
             <p>{provider.message}</p>
           </div>
         </div>
@@ -178,7 +182,7 @@ export const ProviderCard = memo(function ProviderCard({
           {provider.readings.map((reading) => (
             <section key={reading.id}>
               <h3>{reading.name}</h3>
-              <p>{reading.scope}{reading.updatedAt ? ` · ${formatAge(reading.updatedAt)}` : ""}</p>
+              <p>{reading.scope}{reading.updatedAt ? ` · ${formatAge(reading.updatedAt, now)}` : ""}</p>
               <dl className="provider-metrics">
                 {reading.windows.map((window) => (
                   <div key={window.id}>
@@ -235,7 +239,7 @@ export const ProviderCard = memo(function ProviderCard({
           <small title={formatUpdated(provider.updatedAt)}>
             {isManual
               ? provider.updatedAt ? `Updated ${formatUpdated(provider.updatedAt)}` : "No snapshot saved"
-              : formatAge(provider.updatedAt)}
+              : formatAge(provider.updatedAt, now)}
           </small>
         </div>
       </footer>

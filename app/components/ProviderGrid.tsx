@@ -11,6 +11,7 @@ export const ProviderGrid = memo(function ProviderGrid({
   history,
   resets,
   warningThreshold,
+  now,
   onOpenControls,
   onRetry,
 }: {
@@ -22,6 +23,8 @@ export const ProviderGrid = memo(function ProviderGrid({
   history: HistoryPoint[];
   resets: ResetLookup;
   warningThreshold: number;
+  /** Ticking clock from useUsageData; ages and staleness follow it. */
+  now: number;
   onOpenControls: () => void;
   onRetry: () => void;
 }) {
@@ -35,6 +38,7 @@ export const ProviderGrid = memo(function ProviderGrid({
             history={history}
             resets={resets}
             warningThreshold={warningThreshold}
+            now={now}
           />
         ))
       ) : hasProviders ? (
