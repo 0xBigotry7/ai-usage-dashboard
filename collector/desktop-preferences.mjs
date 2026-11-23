@@ -39,7 +39,6 @@ export function sourceConfiguration(id, desktop, base) {
   return {mode, env, revision};
 }
 
-const DAY = 86_400_000;
 const STALE_AFTER_MS = 10 * 60_000;
 const CLAUDE_STALE_AFTER_MS = 45 * 60_000;
 
@@ -47,7 +46,9 @@ const CLAUDE_STALE_AFTER_MS = 45 * 60_000;
 // entered day-only reset, at the end of that day.
 function windowExpiry(window) {
   if (window.resetsAt) return Date.parse(window.resetsAt);
-  return window.resetDate ? Date.parse(`${window.resetDate}T00:00:00`) + DAY : NaN;
+  if (!window.resetDate) return NaN;
+  const nextDay = new Date(`${window.resetDate}T00:00:00`);
+  return nextDay.setDate(nextDay.getDate() + 1);
 }
 
 // Same staleness rule as the menu bar and the web dashboard: a manual
@@ -60,10 +61,16 @@ export function widgetSnapshot(snapshot, enabled, now = Date.now()) {
     if (provider.state !== "ready") continue;
     const withQuota = provider.windows.filter(w => Number.isFinite(w.usedPercent));
     const window = withQuota.find(w => w.id === "weekly") ?? withQuota.at(-1);
-    if (!window || windowExpiry(window) <= now) continue;
+    if (!window) continue;
+    const expiry = windowExpiry(window);
+    if (expiry <= now) continue;
     const readAt = Date.parse(provider.updatedAt);
     const staleAfter = provider.id.startsWith("claude") ? CLAUDE_STALE_AFTER_MS : STALE_AFTER_MS;
     const ages = provider.sourceKind !== "manual";
+    const staleAt = Math.min(
+      ages && Number.isFinite(readAt) ? readAt + staleAfter : Infinity,
+      window.resetDate && Number.isFinite(expiry) ? expiry : Infinity,
+    );
     pools.push({
       id: provider.id, name: provider.name,
       remaining: Math.round(Math.max(0, Math.min(100, 100 - window.usedPercent))),
@@ -71,7 +78,7 @@ export function widgetSnapshot(snapshot, enabled, now = Date.now()) {
       stale: ages && (!Number.isFinite(readAt) || now - readAt > staleAfter),
       // WidgetKit may not ask again for a long time, so the widget is told
       // when this reading turns stale and can mark it by itself.
-      staleAt: ages && Number.isFinite(readAt) ? new Date(readAt + staleAfter).toISOString() : null,
+      staleAt: Number.isFinite(staleAt) ? new Date(staleAt).toISOString() : null,
     });
   }
   pools.sort((a,b) => Number(a.stale) - Number(b.stale) || a.remaining - b.remaining || a.id.localeCompare(b.id));

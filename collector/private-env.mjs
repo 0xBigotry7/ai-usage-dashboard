@@ -39,10 +39,28 @@ const PRIVATE_ENV_KEYS = new Set([
 // so a line removed from the file takes effect on the next reload instead of
 // at the next restart.
 const overriddenValues = new WeakMap();
+const warnedPushMismatch = new WeakSet();
+
+function pushConfiguration(env, overridden) {
+  const url = env.USAGE_HUB_PUSH_URL?.trim();
+  const token = env.USAGE_HUB_PUSH_TOKEN?.trim();
+  const fileUrl = overridden.has("USAGE_HUB_PUSH_URL");
+  const fileToken = overridden.has("USAGE_HUB_PUSH_TOKEN");
+  if (url && token && fileUrl !== fileToken) {
+    if (!warnedPushMismatch.has(env)) {
+      console.warn("Cloud sync skipped: USAGE_HUB_PUSH_URL and USAGE_HUB_PUSH_TOKEN must come from the same source.");
+      warnedPushMismatch.add(env);
+    }
+    return null;
+  }
+  warnedPushMismatch.delete(env);
+  return url && token ? { url, token } : null;
+}
 
 // Shared by the collector and the Claude status-line helper so both resolve
 // the same settings from the same file.
 export async function loadPrivateEnvironment(env = process.env) {
+  const overridden = overriddenValues.get(env) ?? new Map();
   const path = env.USAGE_HUB_ENV_FILE || join(homedir(), ".usage-hub", "env");
   let contents;
   try {
@@ -50,11 +68,10 @@ export async function loadPrivateEnvironment(env = process.env) {
   } catch (error) {
     if (error?.code !== "ENOENT") {
       console.warn(`Cannot read private env file: ${error.message}`);
-      return;
+      return pushConfiguration(env, overridden);
     }
     contents = "";
   }
-  const overridden = overriddenValues.get(env) ?? new Map();
   overriddenValues.set(env, overridden);
   const present = new Set();
   for (const rawLine of contents.split(/\r?\n/)) {
@@ -70,4 +87,5 @@ export async function loadPrivateEnvironment(env = process.env) {
     else env[key] = original;
     overridden.delete(key);
   }
+  return pushConfiguration(env, overridden);
 }

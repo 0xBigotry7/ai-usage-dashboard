@@ -257,14 +257,12 @@ export function lookupReset(
 
 export function pickNextReset<T extends { resetsAt: string | null }>(
   resets: T[],
-  generatedAt: number,
+  now: number,
 ) {
-  // A reset that already passed must not stay pinned as "next".
-  const threshold = Math.max(generatedAt, Date.now());
   return resets
     .filter(
       (reset) =>
-        reset.resetsAt && new Date(reset.resetsAt).getTime() > threshold,
+        reset.resetsAt && new Date(reset.resetsAt).getTime() > now,
     )
     .sort(
       (a, b) =>

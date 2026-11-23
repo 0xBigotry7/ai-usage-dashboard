@@ -45,7 +45,7 @@ test("widget follows the shared staleness rule for old readings and manual snaps
   });
   const staleAt = Object.fromEntries(pools.map((pool) => [pool.id, pool.staleAt]));
   assert.equal(staleAt.claude, new Date(now + 15 * 60_000).toISOString());
-  assert.equal(staleAt["manual-open"], null);
+  assert.equal(staleAt["manual-open"], new Date("2030-01-04T00:00:00").toISOString());
 });
 
 test("unified Grok keeps source readings but never absorbs the Cursor billing pool", () => {
@@ -68,6 +68,32 @@ test("the private env file sets only allowlisted keys, and a removed line stops 
   await writeFile(file, "# both lines removed\n");
   await loadPrivateEnvironment(env);
   assert.deepEqual(env, { USAGE_HUB_ENV_FILE: file, USAGE_HUB_GROK_BIN: "from-launch", PATH: "original" });
+});
+
+test("cloud push never pairs a file setting with a launch setting on reload", async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), "usage-hub-push-"));
+  const file = join(dir, "env");
+  const env = {
+    USAGE_HUB_ENV_FILE: file,
+    USAGE_HUB_PUSH_URL: "https://launch.invalid",
+    USAGE_HUB_PUSH_TOKEN: "launch-fixture",
+  };
+  const warn = t.mock.method(console, "warn", () => {});
+  const url = "USAGE_HUB_PUSH_URL=https://file.invalid\n";
+  const token = "USAGE_HUB_PUSH_TOKEN=file-fixture\n";
+  await writeFile(file, url + token);
+  assert.deepEqual(await loadPrivateEnvironment(env), { url: "https://file.invalid", token: "file-fixture" });
+
+  for (const line of [token, url]) {
+    await writeFile(file, line);
+    assert.equal(await loadPrivateEnvironment(env), null);
+    assert.equal(await loadPrivateEnvironment(env), null);
+    assert.equal(warn.mock.callCount(), 1);
+  }
+  assert.match(warn.mock.calls[0].arguments[0], /must come from the same source/);
+
+  await writeFile(file, "");
+  assert.deepEqual(await loadPrivateEnvironment(env), { url: "https://launch.invalid", token: "launch-fixture" });
 });
 
 test("the Claude status line writes its snapshot where the collector is configured to read it", async () => {
