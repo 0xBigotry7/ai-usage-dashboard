@@ -1,17 +1,12 @@
 import { createServer } from "node:http";
-import { homedir, hostname } from "node:os";
-import { join } from "node:path";
-import { readFile } from "node:fs/promises";
+import { hostname } from "node:os";
 import { collectLocalProviders } from "./providers/index.mjs";
 import { collectRemoteSnapshotProviders } from "./providers/remote-snapshot.mjs";
 import { createHistoryStore } from "./history.mjs";
 import { readDesktopPreferences, sourceConfiguration, widgetSnapshot } from "./desktop-preferences.mjs";
 import { serveMuseForm } from "./muse-form.mjs";
-import {
-  HUB_VERSION,
-  parseEnvAssignment,
-  resolvePollIntervalMs,
-} from "./shared.mjs";
+import { loadPrivateEnvironment } from "./private-env.mjs";
+import { HUB_VERSION, resolvePollIntervalMs } from "./shared.mjs";
 
 const HOST = process.env.USAGE_HUB_HOST || "127.0.0.1";
 const PORT = Number(process.env.USAGE_HUB_PORT || 4317);
@@ -23,53 +18,6 @@ const ALLOWED_BROWSER_ORIGINS = new Set([
   "http://localhost:3000",
   "http://127.0.0.1:3000",
 ]);
-const PRIVATE_ENV_KEYS = new Set([
-  "USAGE_HUB_MUSE_FILE",
-  "DEEPSEEK_API_KEY",
-  "GITHUB_COPILOT_MONTHLY_CREDIT_LIMIT",
-  "GITHUB_COPILOT_TOKEN",
-  "GITHUB_COPILOT_USERNAME",
-  "KIMI_CODE_API_KEY",
-  "KIMI_CODE_BASE_URL",
-  "OPENAI_ADMIN_KEY",
-  "OPENROUTER_API_KEY",
-  "OPENCODE_GO_API_KEY",
-  "USAGE_HUB_DISABLE_PROVIDERS",
-  "USAGE_HUB_PROVIDERS",
-  "USAGE_HUB_PUSH_TOKEN",
-  "USAGE_HUB_PUSH_URL",
-  "USAGE_HUB_CLOUD_URL",
-  "USAGE_HUB_VIEW_CODE_FILE",
-  "USAGE_HUB_CODEX_WEEKLY_TOKEN_CAPACITY",
-  "USAGE_HUB_KIMI_WEEKLY_TOKEN_CAPACITY",
-  "USAGE_HUB_CODEX_LOG_ESTIMATE",
-  "USAGE_HUB_CLAUDE_LOG_ESTIMATE",
-  "USAGE_HUB_CLAUDE_QUOTA_FILE",
-  "USAGE_HUB_CLAUDE_OAUTH_USAGE",
-  "USAGE_HUB_GROK_BIN",
-  "USAGE_HUB_CURSOR_DESKTOP",
-  "USAGE_HUB_CURSOR_DB",
-  "USAGE_HUB_AGY_BIN",
-]);
-
-async function loadPrivateEnvironment() {
-  const path =
-    process.env.USAGE_HUB_ENV_FILE || join(homedir(), ".usage-hub", "env");
-  try {
-    const contents = await readFile(path, "utf8");
-    for (const rawLine of contents.split(/\r?\n/)) {
-      const assignment = parseEnvAssignment(rawLine);
-      if (!assignment) continue;
-      if (PRIVATE_ENV_KEYS.has(assignment.key)) {
-        process.env[assignment.key] = assignment.value;
-      }
-    }
-  } catch (error) {
-    if (error?.code !== "ENOENT") {
-      console.warn(`Cannot read private env file: ${error.message}`);
-    }
-  }
-}
 
 await loadPrivateEnvironment();
 
@@ -359,3 +307,13 @@ function shutdown() {
 
 process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);
+
+// The menu bar app passes its own pid. If the app is killed without the
+// chance to stop this process, the collector is re-parented; stop then, so a
+// later launch starts current code instead of adopting a stale collector.
+const ownerPid = Number(process.env.USAGE_HUB_OWNER_PID);
+if (Number.isInteger(ownerPid) && ownerPid > 1) {
+  setInterval(() => {
+    if (process.ppid !== ownerPid) shutdown();
+  }, 5_000).unref();
+}

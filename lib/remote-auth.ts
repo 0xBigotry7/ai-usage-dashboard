@@ -17,7 +17,12 @@ function parseCookie(header: string | null, name: string) {
     if (separator < 0) continue;
     const key = item.slice(0, separator).trim();
     if (key !== name) continue;
-    return decodeURIComponent(item.slice(separator + 1).trim());
+    try {
+      return decodeURIComponent(item.slice(separator + 1).trim());
+    } catch {
+      // A malformed cookie means "not signed in", not a server error.
+      return null;
+    }
   }
   return null;
 }

@@ -16,7 +16,7 @@
     "id": "claude",
     "name": "Claude Code",
     "method": "CLI logs / optional OAuth",
-    "help": "Use local Claude Code logs. Enable account usage to include supported subscription quotas, or choose a status-line snapshot.",
+    "help": "Use local Claude Code logs. Enable account usage to include subscription quotas, and select the Claude Code executable to renew that sign-in when it expires. A status-line snapshot is the fallback.",
     "fields": [
       {
         "key": "CLAUDE_CONFIG_DIR",
@@ -27,6 +27,11 @@
         "key": "USAGE_HUB_CLAUDE_OAUTH_USAGE",
         "label": "Use signed-in account for quotas",
         "kind": "toggle"
+      },
+      {
+        "key": "USAGE_HUB_CLAUDE_BIN",
+        "label": "Claude Code executable (renews the sign-in)",
+        "kind": "executable"
       },
       {
         "key": "USAGE_HUB_CLAUDE_QUOTA_FILE",
@@ -65,7 +70,7 @@
     "id": "grok-bot",
     "name": "Grok Bot",
     "method": "Desktop sign-in",
-    "help": "Uses your linked Cursor session for Bot billing. The session stays on this Mac.",
+    "help": "Uses your linked Cursor session for Bot billing. The session stays on this Mac. Cursor versions that encrypt the saved sign-in cannot be read.",
     "fields": [
       {
         "key": "USAGE_HUB_CURSOR_DB",
@@ -78,7 +83,7 @@
     "id": "cursor",
     "name": "Cursor",
     "method": "Desktop sign-in",
-    "help": "Uses the signed-in desktop client. The data file is optional for standard installations.",
+    "help": "Uses the signed-in desktop client. The data file is optional for standard installations. Cursor versions that encrypt the saved sign-in cannot be read.",
     "fields": [
       {
         "key": "USAGE_HUB_CURSOR_DB",

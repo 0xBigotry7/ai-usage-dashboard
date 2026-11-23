@@ -1,7 +1,7 @@
 import { memo, useMemo } from "react";
 import { formatCountdown, formatUpdated } from "../../lib/format";
 import {
-  isProviderStale,
+  healthSummary,
   lookupReset,
   pickNextReset,
   type ResetLookup,
@@ -13,17 +13,20 @@ export const OverviewStrip = memo(function OverviewStrip({
   providers,
   resets,
   riskCount,
+  now,
+  unreachable,
 }: {
   data: UsagePayload | null;
   /** Providers currently visible on the dashboard. */
   providers: Provider[];
   resets: ResetLookup;
   riskCount: number;
+  /** Ticking clock from useUsageData, so the counts age without new data. */
+  now: number;
+  /** The last load failed; what is on screen is the previous snapshot. */
+  unreachable: boolean;
 }) {
-  const staleProviders = useMemo(
-    () => providers.filter(isProviderStale),
-    [providers],
-  );
+  const health = useMemo(() => healthSummary(providers, now), [providers, now]);
 
   const nextReset = useMemo(() => {
     const generatedAt = new Date(data?.generatedAt || 0).getTime();
@@ -42,15 +45,17 @@ export const OverviewStrip = memo(function OverviewStrip({
         <span className="overview-strip__dot" />
         <p>
           <b>
-            {data?.collector.state === "online"
-              ? staleProviders.length
-                ? `${providers.length - staleProviders.length} live · ${staleProviders.length} stale`
-                : riskCount
-                  ? `${riskCount} provider${
-                      riskCount > 1 ? "s" : ""
-                    } need attention`
-                  : "Collecting live"
-              : "Waiting for collector"}
+            {unreachable
+              ? "Collector unreachable"
+              : !data || data.collector.state === "starting"
+                ? "Waiting for collector"
+                : health.stale || health.unavailable
+                  ? health.text
+                  : riskCount
+                    ? `${riskCount} provider${
+                        riskCount > 1 ? "s" : ""
+                      } need attention`
+                    : "Collecting live"}
           </b>
           <span>
             {providers.map((provider) => provider.name).join(" · ") ||
@@ -59,14 +64,14 @@ export const OverviewStrip = memo(function OverviewStrip({
         </p>
       </div>
       <div className="overview-strip__reset">
-        <span className="eyebrow">Last data</span>
+        <span className="eyebrow">Collector checked</span>
         <strong>{formatUpdated(data?.generatedAt || null)}</strong>
       </div>
       <div className="overview-strip__reset">
         <span className="eyebrow">Next reset</span>
         <strong>
           {nextReset?.estimated ? "est. " : ""}
-          {nextReset ? formatCountdown(nextReset.resetsAt) : "waiting for data"}
+          {nextReset ? formatCountdown(nextReset.resetsAt, now) : "waiting for data"}
         </strong>
       </div>
       <div className="privacy-lock">

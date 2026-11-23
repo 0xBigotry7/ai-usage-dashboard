@@ -95,6 +95,8 @@ function cloneRemoteProvider(provider) {
     updatedAt: provider.updatedAt,
     windows: Array.isArray(provider.windows) ? provider.windows : [],
     balance: provider.balance ?? null,
+    usageDetails: Array.isArray(provider.usageDetails) ? provider.usageDetails : [],
+    ...(Array.isArray(provider.readings) ? { readings: provider.readings } : {}),
     message: provider.message ?? null,
     tokenUsage: provider.tokenUsage ?? null,
     tokenEstimates: Array.isArray(provider.tokenEstimates)

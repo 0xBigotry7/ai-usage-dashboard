@@ -10,6 +10,10 @@ const PROVIDER_ORDER = [
   "github-copilot",
   "deepseek",
   "opencode-go",
+  "grok",
+  "cursor",
+  "grok-bot",
+  "antigravity",
 ];
 const PROVIDER_ID_PATTERN = /^[a-z0-9][a-z0-9_-]{0,31}$/;
 const PROVIDER_STATES = new Set([
@@ -34,11 +38,11 @@ function boundedString(value: unknown, maxLength: number) {
   return typeof value === "string" ? value.slice(0, maxLength) : null;
 }
 
+// Only real numbers count: Number("") and Number([]) are 0, which would turn
+// a missing reading into "nothing used".
 function boundedNumber(value: unknown, minimum: number, maximum: number) {
-  if (value === null || value === undefined) return null;
-  const number = Number(value);
-  if (!Number.isFinite(number)) return null;
-  return Math.max(minimum, Math.min(maximum, number));
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  return Math.max(minimum, Math.min(maximum, value));
 }
 
 function safeIso(value: unknown) {
@@ -299,7 +303,9 @@ function sanitizeProvider(value: unknown) {
     plan: boundedString(input.plan, 80),
     source: boundedString(input.source, 80) || "Remote collector",
     sourceKind: boundedString(input.sourceKind, 40),
-    updatedAt: safeIso(input.updatedAt) || new Date().toISOString(),
+    // Never stamp the current time on a reading that came without one: an
+    // empty value is shown as stale, which is the honest answer.
+    updatedAt: safeIso(input.updatedAt) || "",
     windows,
     balance,
     usageDetails: sanitizeUsageDetails(input.usageDetails),

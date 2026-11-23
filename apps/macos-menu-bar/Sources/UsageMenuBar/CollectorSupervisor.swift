@@ -98,13 +98,17 @@ final class CollectorSupervisor {
         consecutiveHealthFailures += 1
         guard consecutiveHealthFailures >= healthFailureThreshold else { return }
         consecutiveHealthFailures = 0
-        reportFailure("Collector health check failed")
 
         if let ownedChild = child {
+            reportFailure("Collector health check failed")
             child = nil
             if ownedChild.process.isRunning {
                 ownedChild.process.terminate()
             }
+        } else if !hasReportedFailure {
+            // With no child running, a more specific reason (Node.js missing,
+            // launch failed) is already on screen; keep it.
+            reportFailure("Collector health check failed")
         }
         scheduleRestart()
     }

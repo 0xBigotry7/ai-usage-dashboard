@@ -13,31 +13,62 @@ import type {
 const PROVIDER_STALE_AFTER_MS = 10 * 60 * 1000;
 const CLAUDE_STALE_AFTER_MS = 45 * 60 * 1000;
 
-export function isProviderStale(provider: Provider) {
-  if (provider.sourceKind === "manual") {
-    const window = getPrimaryWindow(provider);
-    if (window?.resetDate) {
-      const dayAfter = new Date(`${window.resetDate}T00:00:00`);
-      dayAfter.setDate(dayAfter.getDate() + 1);
-      return dayAfter.getTime() <= Date.now();
-    }
-    return window?.resetsAt ? Date.parse(window.resetsAt) <= Date.now() : false;
+/** Past its reset time, or past the end of a day-only reset date. */
+export function isWindowExpired(window: WindowUsage, now = Date.now()) {
+  if (window.resetDate) {
+    const dayAfter = new Date(`${window.resetDate}T00:00:00`);
+    dayAfter.setDate(dayAfter.getDate() + 1);
+    return dayAfter.getTime() <= now;
   }
-  const updatedAt = new Date(provider.updatedAt).getTime();
-  const staleAfterMs =
-    provider.id === "claude"
-      ? CLAUDE_STALE_AFTER_MS
-      : PROVIDER_STALE_AFTER_MS;
-  return (
-    !Number.isFinite(updatedAt) ||
-    Date.now() - updatedAt > staleAfterMs
-  );
+  return window.resetsAt ? Date.parse(window.resetsAt) <= now : false;
 }
 
-export function providerStateLabel(provider: Provider) {
-  if (isProviderStale(provider)) return "Data stale";
+/**
+ * Same rule as the menu bar app (UsageMenuBarApp.swift) and the widget feed
+ * (collector/desktop-preferences.mjs); keep the three in step. Callers pass
+ * a ticking `now` so a card turns stale even when no new data arrives.
+ */
+export function isProviderStale(provider: Provider, now = Date.now()) {
+  // A reading taken before its window reset describes the last cycle.
+  const primary = getPrimaryWindow(provider);
+  if (primary && isWindowExpired(primary, now)) return true;
+  // A manual snapshot stays valid until its window ends.
+  if (provider.sourceKind === "manual") return false;
+  const updatedAt = new Date(provider.updatedAt).getTime();
+  const staleAfterMs = provider.id.startsWith("claude")
+    ? CLAUDE_STALE_AFTER_MS
+    : PROVIDER_STALE_AFTER_MS;
+  return !Number.isFinite(updatedAt) || now - updatedAt > staleAfterMs;
+}
+
+export type ProviderHealth = "live" | "stale" | "unavailable";
+
+/** A source that is not ready is never live, however recent its timestamp. */
+export function providerHealth(
+  provider: Provider,
+  now = Date.now(),
+): ProviderHealth {
+  if (provider.state !== "ready") return "unavailable";
+  return isProviderStale(provider, now) ? "stale" : "live";
+}
+
+/** "4 live · 1 stale · 2 unavailable", leaving out the empty groups. */
+export function healthSummary(providers: Provider[], now = Date.now()) {
+  const counts = { live: 0, stale: 0, unavailable: 0 };
+  for (const provider of providers) counts[providerHealth(provider, now)] += 1;
+  return {
+    ...counts,
+    text: (["live", "stale", "unavailable"] as const)
+      .filter((health) => counts[health] > 0)
+      .map((health) => `${counts[health]} ${health}`)
+      .join(" · "),
+  };
+}
+
+export function providerStateLabel(provider: Provider, now = Date.now()) {
   switch (provider.state) {
     case "ready":
+      if (isProviderStale(provider, now)) return "Data stale";
       return provider.sourceKind === "manual" ? "Manual snapshot" : "Live";
     case "needs_configuration":
       return provider.sourceKind === "manual" ? "Awaiting entry" : "Needs setup";
@@ -48,10 +79,14 @@ export function providerStateLabel(provider: Provider) {
   }
 }
 
+/** Weekly when it has a reading, otherwise the last window that has one. */
 export function getPrimaryWindow(provider: Provider) {
+  const withReading = provider.windows.filter(
+    (window) => window.usedPercent !== null,
+  );
   return (
-    provider.windows.find((window) => window.id === "weekly") ||
-    provider.windows[provider.windows.length - 1] ||
+    withReading.find((window) => window.id === "weekly") ||
+    withReading[withReading.length - 1] ||
     null
   );
 }
