@@ -5,7 +5,9 @@ import {
   formatBalance,
   formatCountdown,
   formatPercent,
-  formatResetClock,
+  formatQuotaReset,
+  formatResetDate,
+  formatTokens,
   formatUpdated,
 } from "../../lib/format";
 import {
@@ -21,7 +23,7 @@ import {
   type ResetLookup,
 } from "../../lib/provider-selectors";
 import type { HistoryPoint, Provider } from "../../lib/usage-types";
-import { ProviderLogo } from "../provider-logo";
+import { ProviderLogo, brandAccent } from "../provider-logo";
 import { ProviderTokenPanel } from "./ProviderTokenPanel";
 import { WindowRow } from "./WindowRow";
 
@@ -38,20 +40,30 @@ export const ProviderCard = memo(function ProviderCard({
 }) {
   const primary = getPrimaryWindow(provider);
   const fiveHour = provider.windows.find((window) => window.id === "five_hour");
-  const primaryReset = lookupReset(resets, provider.id, primary);
-  const fiveHourReset = lookupReset(resets, provider.id, fiveHour);
-  const keyReset = fiveHour ? fiveHourReset : primaryReset;
+  const resetWindow = fiveHour ?? primary;
+  const keyReset = lookupReset(resets, provider.id, resetWindow);
   const bars = normalizeBars(history, provider);
   const isReady = provider.state === "ready";
   const risk = providerRisk(provider, warningThreshold);
   const peakWindow = getPeakWindow(provider);
   const stale = isProviderStale(provider);
-  const hasQuota = primary?.usedPercent !== null && primary?.usedPercent !== undefined;
+  const isManual = provider.sourceKind === "manual";
+  const isAntigravity = provider.id === "antigravity";
+  const billingPeriod = provider.id === "cursor"
+    ? provider.usageDetails?.find((detail) => detail.label === "Billing period ends")
+    : null;
+  const usageDetails = provider.usageDetails?.filter((detail) => detail !== billingPeriod);
+  const usedPercent = primary?.usedPercent ?? null;
+  const remainingPercent = usedPercent === null ? null : clamp(100 - usedPercent);
+  const resetDate = resetWindow?.resetDate;
+  const isSingleWindow = provider.windows.length === 1 && usedPercent !== null;
+  const tokenEstimates = getTokenEstimates(provider);
 
   return (
     <article
       className={`provider-card provider-card--${provider.id} provider-card--risk-${risk} ${stale ? "provider-card--stale" : ""}`}
-      style={{ "--provider-accent": provider.accent } as React.CSSProperties}
+      data-provider={provider.id}
+      style={{ "--provider-accent": brandAccent(provider) } as React.CSSProperties}
     >
       <header className="provider-card__header">
         <div className="provider-identity">
@@ -68,63 +80,40 @@ export const ProviderCard = memo(function ProviderCard({
           {stale
             ? `Stale · ${formatAge(provider.updatedAt)}`
             : isReady && risk !== "normal" && peakWindow
-              ? `${peakWindow.label} ${formatPercent(peakWindow.usedPercent)}`
+              ? `${peakWindow.label} · low quota`
               : providerStateLabel(provider)}
         </span>
       </header>
 
-      <div className="provider-card__hero">
-        <div
-          className="usage-ring"
-          style={{
-            "--ring-value": `${clamp(primary?.usedPercent ?? 0) * 3.6}deg`,
-          } as React.CSSProperties}
-        >
-          <div className="usage-ring__inside">
-            <span>{formatPercent(primary?.usedPercent ?? null)}</span>
-            <small>
-              {hasQuota
-                ? `${primary?.label || "current"} used`
-                : "No quota window"}
-            </small>
+      {usedPercent !== null ? (
+        <div className="provider-card__hero">
+          <div className="usage-ring" aria-hidden="true" style={{
+            "--ring-value": `${(remainingPercent ?? 0) * 3.6}deg`,
+          } as React.CSSProperties} />
+          <div className="quota-facts">
+            <span className="quota-facts__window">{primary?.label}</span>
+            <dl className="quota-facts__figures">
+              <div><dt>Remaining</dt><dd>{formatPercent(remainingPercent)}</dd></div>
+            </dl>
+          </div>
+          <div className="quota-reset">
+            <span>{billingPeriod?.label ?? (fiveHour && fiveHour !== primary ? "5-hour reset" : "Resets")}</span>
+            <div>
+              {billingPeriod ? <strong>{billingPeriod.value}</strong> : resetDate ? (
+                <time dateTime={resetDate}>{formatResetDate(resetDate)}</time>
+              ) : keyReset.resetsAt ? (
+                <>
+                  <time dateTime={keyReset.resetsAt}>{keyReset.estimated ? "≈ " : ""}{formatQuotaReset(keyReset.resetsAt)}</time>
+                  <small>{formatCountdown(keyReset.resetsAt)}</small>
+                </>
+              ) : <strong>{isAntigravity ? "No active reset" : "Not reported"}</strong>}
+            </div>
           </div>
         </div>
-        <div className="provider-card__signal">
-          <span className="eyebrow">Next key reset</span>
-          <strong>
-            {keyReset.resetsAt ? (
-              <>
-                {keyReset.estimated ? "est. " : ""}
-                {formatCountdown(keyReset.resetsAt)}
-              </>
-            ) : (
-              "No reset window"
-            )}
-          </strong>
-          <p>
-            {fiveHour
-              ? `5-hour window · ${keyReset.estimated ? "~" : ""}${formatResetClock(keyReset.resetsAt)}`
-              : primary
-                ? `${primary.label} window · ${keyReset.estimated ? "~" : ""}${formatResetClock(keyReset.resetsAt)}`
-                : "This source reports balance or model usage, not quota windows"}
-          </p>
-          {provider.balance ? (
-            <div className="balance-chip">
-              <span>{provider.balance.label}</span>
-              <b>{formatBalance(provider.balance.value, provider.balance.unit)}</b>
-            </div>
-          ) : null}
-        </div>
-      </div>
+      ) : null}
 
       {isReady ? (
         <>
-          {provider.message ? (
-            <div className="provider-notice">
-              <span aria-hidden="true">i</span>
-              <p>{provider.message}</p>
-            </div>
-          ) : null}
           {provider.windows.length ? (
             <div className="window-list">
               {provider.windows.map((window) => (
@@ -132,6 +121,8 @@ export const ProviderCard = memo(function ProviderCard({
                   key={window.id}
                   window={window}
                   reset={lookupReset(resets, provider.id, window)}
+                  compact={isSingleWindow}
+                  showReset={!isSingleWindow && provider.id !== "cursor" && (!isAntigravity || Boolean(window.resetsAt))}
                 />
               ))}
             </div>
@@ -144,6 +135,12 @@ export const ProviderCard = memo(function ProviderCard({
               </p>
             </div>
           )}
+          {provider.message ? (
+            <div className="provider-notice">
+              <span aria-hidden="true">i</span>
+              <p>{provider.message}</p>
+            </div>
+          ) : null}
         </>
       ) : (
         <div className="provider-action">
@@ -155,15 +152,67 @@ export const ProviderCard = memo(function ProviderCard({
         </div>
       )}
 
-      {getTokenEstimates(provider).length ? (
-        <ProviderTokenPanel
-          estimates={getTokenEstimates(provider)}
-          preferred={getPreferredTokenUsage(provider)}
-        />
+      {provider.balance ? (
+        <div className="balance-chip">
+          <span>{provider.balance.label}</span>
+          <b>{provider.balance.unit === "tokens"
+            ? `${provider.balance.approximate ? "≈" : ""}${formatTokens(provider.balance.value)} tokens`
+            : formatBalance(provider.balance.value, provider.balance.unit)}</b>
+        </div>
+      ) : null}
+
+      {usageDetails?.length ? (
+        <dl className="provider-metrics">
+          {usageDetails.map(({ label, value }) => (
+            <div key={label}>
+              <dt>{label}</dt>
+              <dd>{value}</dd>
+            </div>
+          ))}
+        </dl>
+      ) : null}
+
+      {provider.readings?.length ? (
+        <details className="provider-disclosure provider-readings">
+          <summary>Source readings</summary>
+          {provider.readings.map((reading) => (
+            <section key={reading.id}>
+              <h3>{reading.name}</h3>
+              <p>{reading.scope}{reading.updatedAt ? ` · ${formatAge(reading.updatedAt)}` : ""}</p>
+              <dl className="provider-metrics">
+                {reading.windows.map((window) => (
+                  <div key={window.id}>
+                    <dt>{window.label}</dt>
+                    <dd title={window.usedPercent === null ? undefined : `${window.usedPercent}%`}>
+                      {formatPercent(window.usedPercent, reading.id === "grok-bot" ? 4 : 0)}{window.usedPercent === null ? "" : " used"}
+                    </dd>
+                  </div>
+                ))}
+                {reading.windows.filter((window) => window.resetsAt).map((window) => (
+                  <div key={`${window.id}-reset`}>
+                    <dt>Resets</dt>
+                    <dd>{formatUpdated(window.resetsAt)}</dd>
+                  </div>
+                ))}
+                {reading.details.map(({ label, value }) => (
+                  <div key={label}><dt>{label}</dt><dd>{value}</dd></div>
+                ))}
+              </dl>
+              {reading.message ? <p>{reading.message}</p> : null}
+            </section>
+          ))}
+        </details>
+      ) : null}
+
+      {tokenEstimates.length ? (
+        <details className="provider-disclosure">
+          <summary>Token usage details</summary>
+          <ProviderTokenPanel estimates={tokenEstimates} preferred={getPreferredTokenUsage(provider)} />
+        </details>
       ) : null}
 
       <footer className="provider-card__footer">
-        <div>
+        {isManual ? null : <div>
           <span className="eyebrow">Past 24 hours</span>
           {bars.length > 1 ? (
             <div
@@ -180,11 +229,13 @@ export const ProviderCard = memo(function ProviderCard({
           ) : (
             <p className="history-pending">Collecting history</p>
           )}
-        </div>
+        </div>}
         <div className="source-meta">
           <span>{provider.source}</span>
           <small title={formatUpdated(provider.updatedAt)}>
-            {formatAge(provider.updatedAt)}
+            {isManual
+              ? provider.updatedAt ? `Updated ${formatUpdated(provider.updatedAt)}` : "No snapshot saved"
+              : formatAge(provider.updatedAt)}
           </small>
         </div>
       </footer>

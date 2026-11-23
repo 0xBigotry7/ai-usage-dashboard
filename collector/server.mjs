@@ -5,6 +5,8 @@ import { readFile } from "node:fs/promises";
 import { collectLocalProviders } from "./providers/index.mjs";
 import { collectRemoteSnapshotProviders } from "./providers/remote-snapshot.mjs";
 import { createHistoryStore } from "./history.mjs";
+import { readDesktopPreferences, sourceConfiguration, widgetSnapshot } from "./desktop-preferences.mjs";
+import { serveMuseForm } from "./muse-form.mjs";
 import {
   HUB_VERSION,
   parseEnvAssignment,
@@ -22,6 +24,7 @@ const ALLOWED_BROWSER_ORIGINS = new Set([
   "http://127.0.0.1:3000",
 ]);
 const PRIVATE_ENV_KEYS = new Set([
+  "USAGE_HUB_MUSE_FILE",
   "DEEPSEEK_API_KEY",
   "GITHUB_COPILOT_MONTHLY_CREDIT_LIMIT",
   "GITHUB_COPILOT_TOKEN",
@@ -30,6 +33,7 @@ const PRIVATE_ENV_KEYS = new Set([
   "KIMI_CODE_BASE_URL",
   "OPENAI_ADMIN_KEY",
   "OPENROUTER_API_KEY",
+  "OPENCODE_GO_API_KEY",
   "USAGE_HUB_DISABLE_PROVIDERS",
   "USAGE_HUB_PROVIDERS",
   "USAGE_HUB_PUSH_TOKEN",
@@ -40,6 +44,12 @@ const PRIVATE_ENV_KEYS = new Set([
   "USAGE_HUB_KIMI_WEEKLY_TOKEN_CAPACITY",
   "USAGE_HUB_CODEX_LOG_ESTIMATE",
   "USAGE_HUB_CLAUDE_LOG_ESTIMATE",
+  "USAGE_HUB_CLAUDE_QUOTA_FILE",
+  "USAGE_HUB_CLAUDE_OAUTH_USAGE",
+  "USAGE_HUB_GROK_BIN",
+  "USAGE_HUB_CURSOR_DESKTOP",
+  "USAGE_HUB_CURSOR_DB",
+  "USAGE_HUB_AGY_BIN",
 ]);
 
 async function loadPrivateEnvironment() {
@@ -86,7 +96,7 @@ function outboundSnapshot(snapshot) {
       startedAt: snapshot.collector.startedAt,
     },
     providers: snapshot.providers
-      .filter((provider) => provider.sourceKind !== "remote_snapshot")
+      .filter((provider) => provider.sourceKind !== "remote_snapshot" && provider.sourceKind !== "manual")
       .map((provider) => ({
         id: provider.id,
         name: provider.name,
@@ -99,6 +109,8 @@ function outboundSnapshot(snapshot) {
         updatedAt: provider.updatedAt,
         windows: provider.windows,
         balance: provider.balance,
+        usageDetails: provider.usageDetails,
+        readings: provider.readings,
         message: provider.message,
         tokenUsage: provider.tokenUsage,
         tokenEstimates: provider.tokenEstimates,
@@ -147,14 +159,15 @@ async function refresh({ forceLocal = false } = {}) {
   refreshIsForced = forceLocal;
   refreshPromise = (async () => {
     await loadPrivateEnvironment();
+    const desktop = await readDesktopPreferences();
     const localProviders = await collectLocalProviders(process.env, {
-      force: forceLocal,
+      force: forceLocal, desktop,
     });
     const remoteProviders = await collectRemoteSnapshotProviders(
       process.env,
       localProviders.map((provider) => provider.id),
     );
-    const providers = [...localProviders, ...remoteProviders];
+    const providers = [...localProviders, ...remoteProviders.filter(p => desktop.sources[p.id]?.mode !== "off")];
     const generatedAt = new Date();
     try {
       history.save(providers, generatedAt);
@@ -164,6 +177,7 @@ async function refresh({ forceLocal = false } = {}) {
       );
     }
     latest = {
+      desktopShortcuts: { gemini: desktop.shortcuts.gemini === true, muse: desktop.shortcuts.muse === true },
       generatedAt: generatedAt.toISOString(),
       collector: {
         host: hostname(),
@@ -235,6 +249,34 @@ const server = createServer(async (request, response) => {
 
   const url = new URL(request.url || "/", `http://${request.headers.host}`);
   try {
+    if (url.pathname === "/muse" && (request.method === "GET" || request.method === "POST")) {
+      const settings = sourceConfiguration("muse", await readDesktopPreferences(), process.env);
+      const path = settings.mode === "off" ? null : settings.env.USAGE_HUB_MUSE_FILE?.trim();
+      if (!path) {
+        sendJson(response, 404, { error: "Muse manual entry is not configured" }, origin);
+        return;
+      }
+      if (request.method === "POST" &&
+          (origin !== url.origin || !request.headers["content-type"]?.startsWith("application/x-www-form-urlencoded"))) {
+        sendJson(response, 403, { error: "local_form_required" }, origin);
+        return;
+      }
+      await serveMuseForm(request, response, path, url.searchParams.get("saved") === "1", async () => {
+        await refreshPromise?.catch(() => {});
+        await refresh({ forceLocal: true });
+      });
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/api/widget") {
+      if (origin && !ALLOWED_BROWSER_ORIGINS.has(origin)) {
+        sendJson(response, 403, {error: "origin_not_allowed"}, origin);
+        return;
+      }
+      const {widgetEnabled, sources} = await readDesktopPreferences();
+      const visible = latest.providers.filter(p => sources[p.id]?.mode !== "off");
+      sendJson(response, 200, widgetSnapshot({providers: visible}, widgetEnabled), origin);
+      return;
+    }
     if (request.method === "GET" && url.pathname === "/healthz") {
       sendJson(response, 200, {
         ok: true,

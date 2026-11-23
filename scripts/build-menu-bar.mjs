@@ -84,10 +84,10 @@ await copyFile(join(binPath, "UsageMenuBar"), executablePath);
 await chmod(executablePath, 0o755);
 
 const brandFiles = (await readdir(brandsSourcePath))
-  .filter((file) => file.endsWith(".svg"))
+  .filter((file) => /\.(svg|png)$/.test(file) || file === "palette.json")
   .sort();
 if (brandFiles.length === 0) {
-  throw new Error("No SVG provider logos found in public/brands");
+  throw new Error("No provider logos found in public/brands");
 }
 await mkdir(brandsDestinationPath, { recursive: true });
 await Promise.all(
@@ -120,6 +120,7 @@ await writeFile(
   <string>dev.aiusage.dashboard.menubar</string>
   <key>CFBundleInfoDictionaryVersion</key>
   <string>6.0</string>
+  <key>CFBundleURLTypes</key><array><dict><key>CFBundleURLName</key><string>Quota pool</string><key>CFBundleURLSchemes</key><array><string>aiusage-dashboard</string></array></dict></array>
   <key>CFBundleName</key>
   <string>AI Usage Dashboard Menu Bar</string>
   <key>CFBundlePackageType</key>
@@ -143,13 +144,27 @@ await writeFile(
   "utf8",
 );
 
+// Produce a native WidgetKit extension without changing the npm/SwiftPM host layout.
+const widgetSource = join(root, "apps", "macos-widget");
+const widget = join(contentsPath, "PlugIns", "QuotaWidget.appex");
+const widgetContents = join(widget, "Contents");
+await mkdir(join(widgetContents, "MacOS"), { recursive: true });
+const arch = execFileSync("/usr/bin/uname", ["-m"], { encoding: "utf8" }).trim();
+execFileSync("xcrun", ["swiftc", "-target", arch + "-apple-macos14.0", "-O",
+  "-application-extension", "-parse-as-library", "-Xlinker", "-e", "-Xlinker", "_NSExtensionMain", join(widgetSource, "UsageWidget.swift"),
+  "-o", join(widgetContents, "MacOS", "QuotaWidget")], { stdio: "inherit" });
+const widgetInfo = await readFile(join(widgetSource, "Info.plist"), "utf8");
+await writeFile(join(widgetContents, "Info.plist"), widgetInfo.replaceAll("APP_VERSION", version));
+const signingIdentity = process.env.USAGE_HUB_SIGN_IDENTITY || "-";
+execFileSync("codesign", ["--force", "--sign", signingIdentity, "--entitlements",
+  join(widgetSource, "widget.entitlements"), widget], { stdio: "inherit" });
 execFileSync("xattr", ["-cr", appPath], {
   cwd: root,
   stdio: "inherit",
 });
 execFileSync(
   "codesign",
-  ["--force", "--deep", "--sign", "-", appPath],
+  ["--force", "--sign", signingIdentity, appPath],
   { cwd: root, stdio: "inherit" },
 );
 execFileSync("codesign", ["--verify", "--deep", "--strict", appPath], {

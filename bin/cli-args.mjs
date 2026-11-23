@@ -20,6 +20,8 @@ export const CONFIGURE_TARGETS = [
   "openai",
   "openrouter",
   "deepseek",
+  "opencode-go",
+  "opencode",
   "github-copilot",
   "copilot",
   "capacity",

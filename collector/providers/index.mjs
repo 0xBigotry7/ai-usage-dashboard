@@ -1,15 +1,23 @@
 import { existsSync } from "node:fs";
 import { claudeProjectsDir } from "../claude-session-log.mjs";
-import { collectClaudeCodeUsage } from "./claude-code.mjs";
+import { collectAntigravityUsage } from "./antigravity.mjs";
+import { claudeOAuthUsageEnabled } from "../claude-oauth-usage.mjs";
+import { collectClaudeCodeUsage, collectClaudeFableUsage } from "./claude-code.mjs";
 import { collectCodexUsage } from "./codex.mjs";
+import { collectCursorUsage, collectGrokBotUsage } from "./cursor.mjs";
 import { collectDeepSeekBalance } from "./deepseek.mjs";
 import { collectGitHubCopilotUsage } from "./github-copilot.mjs";
+import { collectGrokUsage, groupGrokSharedUsage } from "./grok.mjs";
 import { collectKimiUsage } from "./kimi.mjs";
+import { collectMuseUsage } from "./muse.mjs";
 import { collectOpenAIAdminUsage } from "./openai-api.mjs";
 import { collectOpenRouterUsage } from "./openrouter.mjs";
+import { collectOpenCodeGoUsage } from "./opencode-go.mjs";
 import { createProviderRefreshCoordinator } from "../provider-refresh.mjs";
 
-const refreshCoordinator = createProviderRefreshCoordinator();
+import { sourceConfiguration } from "../desktop-preferences.mjs";
+
+const coordinators = new Map();
 
 export const providerAdapters = [
   {
@@ -19,13 +27,27 @@ export const providerAdapters = [
     collect: collectCodexUsage,
   },
   {
+    id: "muse",
+    name: "Meta Muse",
+    configured: (env) => Boolean(env.USAGE_HUB_MUSE_FILE?.trim()),
+    pollIntervalMs: 1,
+    collect: collectMuseUsage,
+  },
+  {
     id: "claude",
     name: "Claude Code",
     defaultEnabled: false,
-    // Auto-enables once local Claude Code session logs exist; no credential
-    // is required, so log presence is the configuration signal.
-    configured: (env) => existsSync(claudeProjectsDir(env)),
+    configured: (env) =>
+      Boolean(env.USAGE_HUB_CLAUDE_QUOTA_FILE?.trim()) ||
+      claudeOAuthUsageEnabled(env) ||
+      existsSync(claudeProjectsDir(env)),
     collect: collectClaudeCodeUsage,
+  },
+  {
+    id: "claude-fable",
+    name: "Claude Fable",
+    configured: (env) => claudeOAuthUsageEnabled(env),
+    collect: collectClaudeFableUsage,
   },
   {
     id: "kimi",
@@ -52,6 +74,12 @@ export const providerAdapters = [
     collect: collectDeepSeekBalance,
   },
   {
+    id: "opencode-go",
+    name: "OpenCode Go",
+    configured: (env) => Boolean(env.OPENCODE_GO_API_KEY?.trim()),
+    collect: collectOpenCodeGoUsage,
+  },
+  {
     id: "github-copilot",
     name: "GitHub Copilot",
     configured: (env) =>
@@ -60,6 +88,30 @@ export const providerAdapters = [
           env.GITHUB_COPILOT_USERNAME?.trim(),
       ),
     collect: collectGitHubCopilotUsage,
+  },
+  {
+    id: "grok",
+    name: "Grok",
+    configured: (env) => Boolean(env.USAGE_HUB_GROK_BIN?.trim()),
+    collect: collectGrokUsage,
+  },
+  {
+    id: "cursor",
+    name: "Cursor",
+    configured: (env) => env.USAGE_HUB_CURSOR_DESKTOP === "1",
+    collect: collectCursorUsage,
+  },
+  {
+    id: "grok-bot",
+    name: "Grok Bot",
+    configured: (env) => env.USAGE_HUB_CURSOR_DESKTOP === "1",
+    collect: collectGrokBotUsage,
+  },
+  {
+    id: "antigravity",
+    name: "Antigravity",
+    configured: (env) => Boolean(env.USAGE_HUB_AGY_BIN?.trim()),
+    collect: collectAntigravityUsage,
   },
 ];
 
@@ -94,5 +146,25 @@ export function providerCatalog(env = process.env) {
 }
 
 export async function collectLocalProviders(env = process.env, options = {}) {
-  return refreshCoordinator.collect(enabledAdapters(env), env, options);
+  const automatic = new Set(enabledAdapters(env).map(adapter => adapter.id));
+  const results = await Promise.all(providerAdapters.map(async adapter => {
+    const { mode, env: sourceEnv, revision } = sourceConfiguration(adapter.id, options.desktop, env);
+    if (mode === "off" || (mode !== "on" && !automatic.has(adapter.id))) {
+      coordinators.delete(adapter.id);
+      return [];
+    }
+    let cache = coordinators.get(adapter.id);
+    if (cache?.revision !== revision) {
+      cache = { revision, coordinator: createProviderRefreshCoordinator() };
+      coordinators.set(adapter.id, cache);
+    }
+    return cache.coordinator.collect([adapter], sourceEnv, options);
+  }));
+  const providers = results.flat();
+  return groupGrokSharedUsage(providers).map((result) => {
+    const provider = { ...result };
+    delete provider.sharedWeekStart;
+    delete provider.cursorAccount;
+    return provider;
+  });
 }

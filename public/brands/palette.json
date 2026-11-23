@@ -1,0 +1,46 @@
+{
+  "codex": [
+    "#B1A0FF",
+    "#634ADB"
+  ],
+  "claude": [
+    "#EFA285",
+    "#A4482E"
+  ],
+  "claude-fable": [
+    "#EFA285",
+    "#A4482E"
+  ],
+  "grok": [
+    "#CFD0DE",
+    "#595B75"
+  ],
+  "grok-bot": [
+    "#CFD0DE",
+    "#595B75"
+  ],
+  "cursor": [
+    "#D4D9E3",
+    "#525B6C"
+  ],
+  "antigravity": [
+    "#8DB8FF",
+    "#2F65BA"
+  ],
+  "gemini": [
+    "#9BB4FF",
+    "#4B69BB"
+  ],
+  "kimi": [
+    "#A9BAF9",
+    "#5068AD"
+  ],
+  "muse": [
+    "#E8B0D1",
+    "#964D78"
+  ],
+  "openai-api": [
+    "#DEDFE3",
+    "#515761"
+  ]
+}

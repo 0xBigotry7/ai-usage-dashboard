@@ -1,44 +1,47 @@
-# macOS menu bar
+# macOS dashboard and desktop widgets
 
-The menu bar companion reads the local collector at
-`http://127.0.0.1:4317/api/usage` every 60 seconds. It stores no provider
-credentials and does not query provider APIs directly.
+Open the app from Applications to change settings. The **Menu bar** switch is
+off by default. **Widget updates** independently controls whether a placed
+widget can show quota readings. The app does not create any floating desktop
+windows.
 
-The menu bar shows original-color provider icons and primary quota percentages
-in one horizontal row (up to six providers). Stale values get `*` and an orange
-label; failed providers show a red dash, not a fabricated zero. Hover for full
-provider names and status. Local providers use a ten-minute freshness threshold;
-Claude uses 45 minutes. This is a presentation threshold, not a provider polling
-interval. Collection behavior has not changed with the new interface.
-On first launch the app gives its native `NSStatusItem` a stable saved position
-so a crowded macOS 26 menu bar does not park it underneath a MacBook camera
-housing. You can still Command-drag the label to any position you prefer.
+## Add a desktop widget
 
-The expanded panel is a 640-point-wide, 3×2 card overview. All six cards and
-settings fit together without a main scrolling list. Each card shows the
-primary usage metric, reset time, and freshness. Where supplied, it also shows
-a secondary five-hour window or a correctly labeled token total. Token-only
-and balance-only adapters display those metrics rather than inventing quota
-percentages. More than six providers use Previous/Next pages, in collector order.
+1. Install the built app in Applications and open it once.
+2. Control-click the desktop, choose **Edit Widgets**, and search for
+   **AI Usage Dashboard**.
+3. Drag a small, medium, or large widget onto the desktop. Use its system
+   context menu to resize or remove it.
 
-Click a card for the secondary detail popover, which preserves:
+Small shows the connected quota pool with the least remaining allowance,
+prioritizing fresh readings, and its reset time when available. Medium and
+large show up to three and six pools. Click a pool to open the native details,
+including its product readings where available. WidgetKit schedules updates
+and may defer the requested 15-minute refresh. A stopped collector produces
+an offline state. Switching **Widget updates** off hides readings on the
+next system reload. Placement and removal belong to macOS.
 
-- every quota window and reset time returned by each provider;
-- projected period-end usage and an estimated exhaustion time when reset and
-  duration data make a pace calculation possible;
-- provider-level data freshness and balances;
-- today's observed input + output total when the collector supplies it;
-- up to three model token totals, marked with their period and as official API
-  usage, local session-log observations, or quota-percentage estimates;
-- real provider artwork loaded from `public/brands`, including upstream color
-  variants for Codex, Kimi, and Claude;
-- optional 70%, 80%, or 90% quota notifications (80% by default), deduplicated
-  once per provider window and quota cycle;
-- a native **Launch at Login** switch powered by `SMAppService`.
+## Choose data sources
 
-Notifications are disabled until the user turns on **Quota alerts**. Stale
-provider snapshots never trigger an alert, and a window without a reset time is
-eligible again only after its usage falls below the selected threshold.
+Open **Connections** to set each source to **Automatic**, **On**, or **Off**.
+Automatic follows existing collector detection and environment settings. On
+enables the selected adapter and displays its supported connection fields.
+Select a local CLI, a client profile or snapshot, or enter a provider API
+key as indicated. Sign in using the corresponding provider app or CLI first
+when its adapter requires a signed-in session. This dashboard does not
+perform those sign-ins. Off skips the adapter.
+
+Gemini and Muse launchers are independent opt-ins for installed apps.
+A Muse manual snapshot is a separate source. The optional Claude per-model
+reader requires a signed-in account that reports that limit. Grok Build and
+Bot share a card only when their unified weekly window matches, and Cursor
+keeps its own billing cycle.
+
+Preferences, including any entered API keys, stay in the owner's local
+`~/.usage-hub/desktop-connections.json` with mode 0600. API keys are stored
+in that file in plaintext. There is no web API for writing connection
+settings. The sandboxed widget reads only a minimal local quota summary
+from `http://127.0.0.1:4317/api/widget` and receives no credentials.
 
 Run from source:
 
@@ -85,8 +88,7 @@ node scripts/capture-menu-bar-preview.mjs
 It displays six synthetic providers in a dedicated preview window and disables
 account settings. The capture script renders only the app's own demo content
 to `docs/images/menu-bar-overview.png`; it does not capture the desktop.
-Numbers are illustrative, not provider plan limits. In particular, this does
-not add an official Claude quota endpoint or new proprietary adapters.
+The demo uses illustrative values.
 
 The public build contains no preconfigured remote host, SSH command, private
 snapshot path, account cookie, or credential. Custom snapshot integration stays

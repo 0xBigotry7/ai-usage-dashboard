@@ -4,8 +4,10 @@ export function clamp(value: number) {
   return Math.max(0, Math.min(100, value));
 }
 
-export function formatPercent(value: number | null) {
-  return value === null ? "—" : `${Math.round(value)}%`;
+export function formatPercent(value: number | null, maximumFractionDigits = 0) {
+  if (value === null) return "—";
+  if (maximumFractionDigits === 0) return `${Math.round(value)}%`;
+  return `${new Intl.NumberFormat(undefined, { maximumFractionDigits }).format(value)}%`;
 }
 
 export function formatNumber(value: number | null) {
@@ -57,6 +59,23 @@ export function formatResetClock(resetsAt: string | null) {
   return new Intl.DateTimeFormat(undefined, {
     weekday: "short",
     hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(resetsAt));
+}
+
+export function formatResetDate(resetDate: string) {
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    timeZone: "UTC",
+  }).format(new Date(resetDate));
+}
+
+export function formatQuotaReset(resetsAt: string) {
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
     minute: "2-digit",
   }).format(new Date(resetsAt));
 }

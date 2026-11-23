@@ -58,9 +58,12 @@ path. Follow Apple's
 [notarization documentation](https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution)
 as the authority when it differs from this checklist.
 
-The current build script always applies an ad-hoc signature. Before automating a
-public release, extend it with an explicit distribution mode rather than
-silently replacing the local behavior. The distribution mode should:
+The local build embeds the sandboxed WidgetKit extension, signs it first, then
+signs the host. It uses an ad-hoc signature by default and accepts an optional
+`USAGE_HUB_SIGN_IDENTITY` for local signing. For a release, verify the
+extension's sandbox and outbound-network entitlements after signing. Open the
+installed host and check all three sizes in the macOS widget gallery. The
+distribution workflow also needs to:
 
 1. remove extended attributes before signing;
 2. sign any nested executable code first, then the application bundle;

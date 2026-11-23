@@ -5,10 +5,13 @@ import {
   type CopySummaryInput,
 } from "../../lib/copy-summary";
 import { REFRESH_SECONDS } from "../hooks/use-usage-data";
+import { ProviderLogo } from "../provider-logo";
 import { RefreshCountdown } from "./RefreshCountdown";
 
 export const Topbar = memo(function Topbar({
   summary,
+  canUpdateMuse,
+  shortcuts,
   controlsOpen,
   onToggleControls,
   refreshing,
@@ -17,6 +20,8 @@ export const Topbar = memo(function Topbar({
 }: {
   /** Copy-summary input; null until the first usage payload arrives. */
   summary: CopySummaryInput | null;
+  canUpdateMuse: boolean;
+  shortcuts?: { gemini?: boolean; muse?: boolean };
   controlsOpen: boolean;
   onToggleControls: () => void;
   refreshing: boolean;
@@ -55,6 +60,17 @@ export const Topbar = memo(function Topbar({
       </div>
 
       <div className="topbar__actions">
+        {shortcuts?.gemini && <a className="utility-button gemini-launch" href="https://gemini.google.com/" target="_blank" rel="noreferrer"
+          title="Open Gemini, then choose Settings → Usage limits">
+          <ProviderLogo provider={{ id: "gemini", name: "Gemini", shortName: "GE", accent: "#79a9ff" }} />
+          Gemini
+        </a>}
+        {shortcuts?.muse && <a className="utility-button" href="hatch://" title="Open the installed Muse app to check usage">Muse</a>}
+        {canUpdateMuse ? (
+          <a className="utility-button" href="http://127.0.0.1:4317/muse">
+            Update Muse
+          </a>
+        ) : null}
         <Link
           className="utility-button display-launch"
           href="/display"

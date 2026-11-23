@@ -1,0 +1,199 @@
+[
+  {
+    "id": "codex",
+    "name": "OpenAI Codex",
+    "method": "CLI sign-in",
+    "help": "Sign in with Codex first. The collector reads its local OAuth account. Leave the folder empty to use the default.",
+    "fields": [
+      {
+        "key": "CODEX_HOME",
+        "label": "Codex data folder",
+        "kind": "directory"
+      }
+    ]
+  },
+  {
+    "id": "claude",
+    "name": "Claude Code",
+    "method": "CLI logs / optional OAuth",
+    "help": "Use local Claude Code logs. Enable account usage to include supported subscription quotas, or choose a status-line snapshot.",
+    "fields": [
+      {
+        "key": "CLAUDE_CONFIG_DIR",
+        "label": "Claude data folder",
+        "kind": "directory"
+      },
+      {
+        "key": "USAGE_HUB_CLAUDE_OAUTH_USAGE",
+        "label": "Use signed-in account for quotas",
+        "kind": "toggle"
+      },
+      {
+        "key": "USAGE_HUB_CLAUDE_QUOTA_FILE",
+        "label": "Status-line snapshot",
+        "kind": "file"
+      }
+    ]
+  },
+  {
+    "id": "claude-fable",
+    "name": "Claude Fable",
+    "method": "Signed-in account",
+    "help": "Uses the model-specific limit reported by the Claude account. Enabling this source opts into account quota access.",
+    "fields": [
+      {
+        "key": "CLAUDE_CONFIG_DIR",
+        "label": "Claude data folder",
+        "kind": "directory"
+      }
+    ]
+  },
+  {
+    "id": "grok",
+    "name": "Grok Build",
+    "method": "CLI executable",
+    "help": "Select your installed Grok executable after completing its sign-in.",
+    "fields": [
+      {
+        "key": "USAGE_HUB_GROK_BIN",
+        "label": "Grok executable",
+        "kind": "executable"
+      }
+    ]
+  },
+  {
+    "id": "grok-bot",
+    "name": "Grok Bot",
+    "method": "Desktop sign-in",
+    "help": "Uses your linked Cursor session for Bot billing. The session stays on this Mac.",
+    "fields": [
+      {
+        "key": "USAGE_HUB_CURSOR_DB",
+        "label": "Cursor state database",
+        "kind": "file"
+      }
+    ]
+  },
+  {
+    "id": "cursor",
+    "name": "Cursor",
+    "method": "Desktop sign-in",
+    "help": "Uses the signed-in desktop client. The data file is optional for standard installations.",
+    "fields": [
+      {
+        "key": "USAGE_HUB_CURSOR_DB",
+        "label": "Cursor state database",
+        "kind": "file"
+      }
+    ]
+  },
+  {
+    "id": "antigravity",
+    "name": "Antigravity",
+    "method": "CLI executable",
+    "help": "Select agy after signing in. If agy requests workspace trust, open it in ~/Library/Application Support/AIUsageDashboard/agy-workspace and review the prompt.",
+    "fields": [
+      {
+        "key": "USAGE_HUB_AGY_BIN",
+        "label": "agy executable",
+        "kind": "executable"
+      }
+    ]
+  },
+  {
+    "id": "kimi",
+    "name": "Kimi Code",
+    "method": "API key",
+    "help": "Provide a Kimi Code key or use the existing collector configuration.",
+    "fields": [
+      {
+        "key": "KIMI_CODE_API_KEY",
+        "label": "API key",
+        "kind": "secret"
+      }
+    ]
+  },
+  {
+    "id": "deepseek",
+    "name": "DeepSeek API",
+    "method": "API key",
+    "help": "Reads the balance of the official API account associated with this key.",
+    "fields": [
+      {
+        "key": "DEEPSEEK_API_KEY",
+        "label": "API key",
+        "kind": "secret"
+      }
+    ]
+  },
+  {
+    "id": "openai-api",
+    "name": "OpenAI API",
+    "method": "Admin API key",
+    "help": "Uses an organization admin key for API billing usage.",
+    "fields": [
+      {
+        "key": "OPENAI_ADMIN_KEY",
+        "label": "Admin key",
+        "kind": "secret"
+      }
+    ]
+  },
+  {
+    "id": "opencode-go",
+    "name": "OpenCode Go",
+    "method": "API key",
+    "help": "Uses the official OpenCode Go subscription usage endpoint.",
+    "fields": [
+      {
+        "key": "OPENCODE_GO_API_KEY",
+        "label": "Go API key",
+        "kind": "secret"
+      }
+    ]
+  },
+  {
+    "id": "openrouter",
+    "name": "OpenRouter",
+    "method": "API key",
+    "help": "Reads the usage available for the configured key.",
+    "fields": [
+      {
+        "key": "OPENROUTER_API_KEY",
+        "label": "API key",
+        "kind": "secret"
+      }
+    ]
+  },
+  {
+    "id": "github-copilot",
+    "name": "GitHub Copilot",
+    "method": "API token and username",
+    "help": "Uses your existing GitHub billing access.",
+    "fields": [
+      {
+        "key": "GITHUB_COPILOT_USERNAME",
+        "label": "Username",
+        "kind": "text"
+      },
+      {
+        "key": "GITHUB_COPILOT_TOKEN",
+        "label": "Token",
+        "kind": "secret"
+      }
+    ]
+  },
+  {
+    "id": "muse",
+    "name": "Muse allowance",
+    "method": "Manual snapshot",
+    "help": "Choose a local JSON file for manually maintained weekly quota and referral balance. The app shortcut is a separate choice.",
+    "fields": [
+      {
+        "key": "USAGE_HUB_MUSE_FILE",
+        "label": "Snapshot file",
+        "kind": "snapshot"
+      }
+    ]
+  }
+]

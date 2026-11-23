@@ -1,3 +1,4 @@
+import { brandAccent } from "../provider-logo";
 import type { Provider } from "../../lib/usage-types";
 import { WARNING_LEVELS } from "../hooks/use-preferences";
 
@@ -35,7 +36,7 @@ export function ControlDock({
                 onClick={() => onToggleProvider(provider.id)}
                 aria-pressed={visible}
               >
-                <i style={{ background: provider.accent }} />
+                <i style={{ background: brandAccent(provider) }} />
                 {provider.name}
               </button>
             );

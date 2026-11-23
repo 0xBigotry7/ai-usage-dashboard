@@ -17,6 +17,7 @@ export type WindowUsage = {
   limit: number | null;
   remaining: number | null;
   resetsAt: string | null;
+  resetDate?: string;
 };
 
 export type ModelTokenUsage = {
@@ -70,13 +71,27 @@ export type Provider = {
     label: string;
     value: number;
     unit: string;
+    approximate?: boolean;
   } | null;
   message: string | null;
+  usageDetails?: { label: string; value: string }[];
+  readings?: ProviderReading[];
   tokenUsage: TokenUsage | null;
   tokenEstimates?: TokenUsage[];
 };
 
+export type ProviderReading = {
+  id: string;
+  name: string;
+  scope: string;
+  updatedAt: string | null;
+  windows: WindowUsage[];
+  details: { label: string; value: string }[];
+  message: string | null;
+};
+
 export type UsagePayload = {
+  desktopShortcuts?: { gemini?: boolean; muse?: boolean };
   generatedAt: string;
   collector: {
     host?: string;
