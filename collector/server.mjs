@@ -66,10 +66,7 @@ function outboundSnapshot(snapshot) {
   };
 }
 
-async function pushRemoteSnapshot(snapshot) {
-  const url = process.env.USAGE_HUB_PUSH_URL?.trim();
-  const token = process.env.USAGE_HUB_PUSH_TOKEN?.trim();
-  if (!url || !token) return;
+async function pushRemoteSnapshot(snapshot, { url, token }) {
   const endpoint = new URL(url);
   if (endpoint.protocol !== "https:") {
     throw new Error("Cloud sync URL must use HTTPS");
@@ -106,7 +103,7 @@ async function refresh({ forceLocal = false } = {}) {
   }
   refreshIsForced = forceLocal;
   refreshPromise = (async () => {
-    await loadPrivateEnvironment();
+    const push = await loadPrivateEnvironment();
     const desktop = await readDesktopPreferences();
     const localProviders = await collectLocalProviders(process.env, {
       force: forceLocal, desktop,
@@ -138,7 +135,7 @@ async function refresh({ forceLocal = false } = {}) {
       providers,
     };
     try {
-      await pushRemoteSnapshot(latest);
+      if (push) await pushRemoteSnapshot(latest, push);
     } catch (error) {
       console.warn(`Cloud sync failed: ${error?.message || "unknown error"}`);
     }

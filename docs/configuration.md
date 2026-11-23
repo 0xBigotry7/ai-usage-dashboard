@@ -82,13 +82,14 @@ is marked stale instead of looking current.
    is only sent to that endpoint and is never stored or logged. It expires
    after a few hours and only Claude Code can renew it. The Claude desktop app
    keeps its own sign-in and does not renew this one.
-2. **Automatic renewal** — set `USAGE_HUB_CLAUDE_BIN` to the `claude`
-   executable and the collector lets Claude Code renew an expired sign-in by
-   sending one minimal request (one word to the smallest model, with tools,
-   plugins, hooks and session saving off). This uses a few hundred tokens at
-   most once per expiry; a failed attempt is retried after 30 minutes. The
-   collector never uses the refresh token itself. Without this setting the
-   card waits until Claude Code is next used in a terminal.
+2. **Automatic renewal** — set `USAGE_HUB_CLAUDE_BIN` to the absolute path of
+   the `claude` executable. Claude Code sends a non-interactive Haiku request
+   in safe mode, with built-in tools disabled, strict MCP configuration, and
+   session saving disabled. Managed settings, policy-configured hooks, and a
+   gateway configured by policy still apply to this request. Leave this option
+   off on centrally managed machines. The collector checks for the renewed
+   sign-in on the next poll and retries a failed attempt after 30 minutes.
+   Without this setting, the card waits until Claude Code next runs in a terminal.
 3. **Status line** — the fallback when account usage is off or unavailable.
    Point Claude Code's `statusLine` command at
    `node <collector>/claude-statusline.mjs` and set
@@ -260,7 +261,7 @@ and only credential-free normalized values are stored.
 | `USAGE_HUB_CODEX_LOG_ESTIMATE` | local collector | Set to `off` to disable Codex local log estimation |
 | `USAGE_HUB_CLAUDE_LOG_ESTIMATE` | local collector | Set to `off` to disable Claude Code local log estimation |
 | `USAGE_HUB_CLAUDE_OAUTH_USAGE` | local collector | Set to `1` to read subscription quota from Claude's usage endpoint with the terminal CLI's sign-in |
-| `USAGE_HUB_CLAUDE_BIN` | local collector | Optional `claude` executable; lets Claude Code renew an expired sign-in with one minimal request |
+| `USAGE_HUB_CLAUDE_BIN` | local collector | Optional absolute path to the `claude` executable for automatic sign-in renewal |
 | `USAGE_HUB_CLAUDE_QUOTA_FILE` | local collector | Optional status-line snapshot path, shared by the collector and `collector/claude-statusline.mjs` |
 | `USAGE_HUB_PUSH_URL` | local collector | Hosted `/api/ingest` endpoint |
 | `USAGE_HUB_PUSH_TOKEN` | local collector | Hosted ingest bearer secret |

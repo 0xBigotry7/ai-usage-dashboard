@@ -122,39 +122,59 @@ test("a status-line fallback keeps its own capture time and says why it is shown
   assert.deepEqual(fable.windows, []);
 });
 
-test("an expired sign-in is renewed by Claude Code before the usage request", async () => {
+test("an expired sign-in renews once in the background and the next poll uses it", { timeout: 2_000 }, async () => {
   resetClaudeOAuthUsageCache();
   const now = Date.parse("2031-01-01T00:00:00Z");
-  const { env, write } = await claudeProfile(now - HOUR, "old-token");
+  const { dir, env, write } = await claudeProfile(now - HOUR, "old-token");
   const renewed = [];
   const sent = [];
   const fetchImpl = async (_url, options) => {
     sent.push(options.headers.Authorization);
     return { ok: true, json: async () => ({ seven_day: { utilization: 18 } }) };
   };
-  const renew = async (binary) => {
+  const finished = Promise.withResolvers();
+  const renew = (binary) => {
     renewed.push(binary);
-    await write("new-token", now + 8 * HOUR);
-    return true;
+    return finished.promise;
   };
-  const withBinary = { ...env, USAGE_HUB_CLAUDE_BIN: "/opt/claude" };
+  const binary = join(dir, "claude-fixture");
+  const withBinary = { ...env, USAGE_HUB_CLAUDE_BIN: binary };
 
-  // Both cards ask at once; the sign-in is renewed once and read once.
   const [first, second] = await Promise.all([
     getClaudeOAuthUsage(withBinary, { fetchImpl, now, renew }),
     getClaudeOAuthUsage(withBinary, { fetchImpl, now, renew }),
   ]);
-  assert.equal(first.ok, true);
-  assert.equal(first.windows[0].usedPercent, 18);
-  assert.equal(second, first);
-  assert.deepEqual(renewed, ["/opt/claude"]);
+  assert.equal(first.reason, "expired");
+  assert.match(first.message, /is renewing/);
+  assert.equal(second.reason, "expired");
+  assert.deepEqual(renewed, [binary]);
+  assert.deepEqual(sent, []);
+
+  await write("new-token", now + 8 * HOUR);
+  finished.resolve(true);
+  const next = await getClaudeOAuthUsage(withBinary, { fetchImpl, now, renew });
+  assert.equal(next.ok, true);
+  assert.equal(next.windows[0].usedPercent, 18);
   assert.deepEqual(sent, ["Bearer new-token"]);
+});
+
+test("a relative Claude executable is ignored and the card asks for an absolute path", async () => {
+  resetClaudeOAuthUsageCache();
+  const { dir, env } = await claudeProfile(Date.now() - HOUR);
+  const result = await collectClaudeFableUsage({
+    ...env, USAGE_HUB_CLAUDE_BIN: "./claude-fixture", USAGE_HUB_CLAUDE_QUOTA_FILE: join(dir, "missing.json"),
+  });
+  assert.equal(result.state, "auth_error");
+  assert.match(result.message, /USAGE_HUB_CLAUDE_BIN needs an absolute path/);
+  const renew = test.mock.fn();
+  await getClaudeOAuthUsage({ ...env, USAGE_HUB_CLAUDE_BIN: "./claude-fixture" }, { renew });
+  assert.equal(renew.mock.callCount(), 0);
 });
 
 test("renewal is opt-in, and a failed attempt is not repeated until the retry period ends", async () => {
   resetClaudeOAuthUsageCache();
   const now = Date.parse("2031-01-01T00:00:00Z");
-  const { env } = await claudeProfile(now - HOUR);
+  const { dir, env } = await claudeProfile(now - HOUR);
   let attempts = 0;
   const renew = async () => { attempts += 1; return false; };
   const fetchImpl = async () => { throw new Error("must not be called with an expired token"); };
@@ -165,11 +185,11 @@ test("renewal is opt-in, and a failed attempt is not repeated until the retry pe
   assert.equal(attempts, 0);
 
   resetClaudeOAuthUsageCache();
-  const on = { ...env, USAGE_HUB_CLAUDE_BIN: "/opt/claude" };
-  const failed = await getClaudeOAuthUsage(on, { fetchImpl, now, renew });
+  const on = { ...env, USAGE_HUB_CLAUDE_BIN: join(dir, "claude-fixture") };
+  await getClaudeOAuthUsage(on, { fetchImpl, now, renew });
+  const failed = await getClaudeOAuthUsage(on, { fetchImpl, now: now + 10 * 60_000, renew });
   assert.equal(failed.reason, "expired");
   assert.match(failed.message, /could not be renewed automatically/);
-  await getClaudeOAuthUsage(on, { fetchImpl, now: now + 10 * 60_000, renew });
   assert.equal(attempts, 1);
   await getClaudeOAuthUsage(on, { fetchImpl, now: now + 31 * 60_000, renew });
   assert.equal(attempts, 2);

@@ -26,12 +26,12 @@ These goals depend on keeping real values outside source-controlled files.
   opts in, from the CLI's own store (macOS Keychain, or `.credentials.json`),
   and are never modified. The access token is sent only to Claude's usage
   endpoint. For the same reason as Codex, the collector never calls the OAuth
-  refresh endpoint. With `USAGE_HUB_CLAUDE_BIN` set, an expired sign-in is
-  renewed by Claude Code itself: the collector runs the CLI once with a
-  one-word prompt, the smallest model, and tools, plugins, hooks and session
-  saving switched off, passing only `HOME`, `PATH` and the locale variables.
-  This spends a few hundred tokens at most once per expiry and is off by
-  default.
+  refresh endpoint. With an absolute `USAGE_HUB_CLAUDE_BIN` path, the collector
+  asks Claude Code to renew its own sign-in in a non-interactive Haiku request.
+  The CLI runs in safe mode with built-in tools disabled, strict MCP
+  configuration, and session saving disabled. Managed settings, policy-configured
+  hooks, and a gateway configured by policy still apply to this request. Leave
+  automatic renewal off on centrally managed machines. It is off by default.
 - The Cursor and Grok Bot readers use the access token the Cursor desktop app
   stores, in memory only. When Cursor stores that token encrypted, the readers
   report it as unreadable and stop; they do not access the encryption key.

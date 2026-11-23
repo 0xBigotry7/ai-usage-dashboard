@@ -1,11 +1,34 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import { register } from "node:module";
 import test from "node:test";
+
+const ingestDb = `data:text/javascript,${encodeURIComponent(`
+  export const remoteSnapshots = { id: "id" };
+  export const remoteUsageHistory = { capturedAt: "capturedAt" };
+  export const snapshots = new Map();
+  export const history = [];
+  export const eq = () => {};
+  export const lt = () => {};
+  export const getDb = () => ({
+    insert: () => ({
+      values: (row) => ({
+        onConflictDoUpdate: () => snapshots.set(row.id, row),
+        onConflictDoNothing: () => history.push(row),
+      }),
+    }),
+    delete: () => ({ where: () => {} }),
+  });
+`)}`;
 
 // The web modules import each other without file extensions (the bundler
 // resolves them). Teach Node the same rule so they can be tested directly.
 register(`data:text/javascript,${encodeURIComponent(`
   export async function resolve(specifier, context, next) {
+    if (context.parentURL?.endsWith("/api/ingest/route.ts") &&
+        ["drizzle-orm", "../../../db", "../../../db/schema"].includes(specifier)) {
+      return { url: ${JSON.stringify(ingestDb)}, shortCircuit: true };
+    }
     try {
       return await next(specifier, context);
     } catch (error) {
@@ -22,6 +45,7 @@ const {
   healthSummary,
   isProviderStale,
   isWindowExpired,
+  pickNextReset,
   providerHealth,
   providerStateLabel,
 } = await import("../lib/provider-selectors.ts");
@@ -36,6 +60,20 @@ const weekly = (extra = {}) => ({
 const provider = (id, extra = {}) => ({
   id, name: id, shortName: "XX", accent: "#fff", state: "ready", plan: null, source: "test",
   updatedAt: minutesAgo(1), windows: [weekly()], balance: null, message: null, tokenUsage: null, ...extra,
+});
+
+test("next reset advances as the overview clock ticks with the same readings", async (t) => {
+  t.mock.method(Date, "now", () => now + 120_000);
+  const resets = [
+    weekly({ id: "later", resetsAt: "2030-01-03T12:02:00Z" }),
+    weekly({ id: "first", resetsAt: "2030-01-03T12:01:00Z" }),
+  ];
+  assert.equal(pickNextReset(resets, now)?.id, "first");
+  assert.equal(pickNextReset(resets, now + 60_000)?.id, "later");
+  assert.equal(pickNextReset(resets, now + 120_000), undefined);
+
+  const overview = await readFile(new URL("../app/components/OverviewStrip.tsx", import.meta.url), "utf8");
+  assert.match(overview, /pickNextReset\(upcoming, now\);\s*\}, \[[^\]]*\bnow\b/);
 });
 
 test("a reading goes stale with age, with the longer allowance for both Claude cards", () => {
@@ -113,4 +151,32 @@ test("the cloud validator never turns a missing reading or time into a real-look
   assert.equal(providers[0].updatedAt, "");
   assert.deepEqual(providers[0].windows.map((w) => [w.id, w.usedPercent]), [["weekly", null], ["five_hour", 37.5]]);
   assert.equal(isProviderStale(providers[0]), true);
+});
+
+test("ingest stores dated readings and leaves undated uploads stale and out of history", async (t) => {
+  const { POST } = await import("../app/api/ingest/route.ts");
+  const { snapshots, history } = await import(ingestDb);
+  const token = "ingest-fixture";
+  const previousToken = process.env.INGEST_TOKEN;
+  process.env.INGEST_TOKEN = token;
+  t.after(() => {
+    if (previousToken === undefined) delete process.env.INGEST_TOKEN;
+    else process.env.INGEST_TOKEN = previousToken;
+  });
+  const capturedAt = "2024-01-01T00:00:00.000Z";
+  for (const updatedAt of [capturedAt, undefined]) {
+    const response = await POST(new Request("https://dashboard.invalid/api/ingest", {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        generatedAt: "2024-01-01T00:05:00.000Z",
+        providers: [provider("codex", { updatedAt })],
+      }),
+    }));
+    assert.equal(response.status, 202);
+    const reading = JSON.parse(snapshots.get("codex").payload);
+    assert.equal(reading.updatedAt, updatedAt ?? "");
+    assert.equal(isProviderStale(reading, Date.parse(capturedAt)), updatedAt === undefined);
+    assert.deepEqual(history.map((row) => row.capturedAt), [capturedAt]);
+  }
 });

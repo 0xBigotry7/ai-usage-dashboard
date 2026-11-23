@@ -29,15 +29,14 @@ export const OverviewStrip = memo(function OverviewStrip({
   const health = useMemo(() => healthSummary(providers, now), [providers, now]);
 
   const nextReset = useMemo(() => {
-    const generatedAt = new Date(data?.generatedAt || 0).getTime();
     const upcoming = providers.flatMap((provider) =>
       provider.windows.map((window) => ({
         ...lookupReset(resets, provider.id, window),
         window,
       })),
     );
-    return pickNextReset(upcoming, generatedAt);
-  }, [data?.generatedAt, resets, providers]);
+    return pickNextReset(upcoming, now);
+  }, [now, resets, providers]);
 
   return (
     <section className="overview-strip" aria-label="Collector status">

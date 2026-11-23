@@ -28,6 +28,11 @@ the version links below resolve once their tags are pushed.
 
 ### Fixed
 
+- Keep Claude sign-in renewal off the manual refresh path and require an
+  absolute executable path. Keep cloud push credentials paired by source,
+  mark undated uploads and expired Muse widget readings stale, and advance
+  the web dashboard's next reset as time passes.
+
 - Upgrade vulnerable web/build dependencies: Next.js 16.4.6, aligned React/RSC
   19.3.1, vinext 1.4.6, and patched transitive tooling. Update the existing
   sharp override and constrain Satori's fflate dependency to the compatible

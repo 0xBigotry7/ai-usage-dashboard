@@ -8,7 +8,7 @@ private struct Pool: Decodable, Identifiable {
     let reset: String?
     let dayOnly: Bool
     var stale: Bool
-    // When the reading turns stale by age; absent for manual snapshots.
+    // When the reading turns stale by age or its date-only quota ends.
     var staleAt: String?
     var resetDate: Date? {
         guard let reset else { return nil }
@@ -68,8 +68,8 @@ private struct Provider: TimelineProvider {
             var entries = [entry]
             let next = entry.date.addingTimeInterval(15 * 60)
             // WidgetKit may delay the next fetch for hours, so schedule the
-            // changes that are already known: a pool disappears at its reset,
-            // and its reading is marked stale when it gets too old.
+            // changes already known: timed pools disappear at reset, and
+            // readings become stale at their scheduled staleness time.
             let changes = Set(entry.pools.flatMap { pool in
                 [pool.dayOnly ? nil : pool.resetDate, pool.stale ? nil : pool.staleDate].compactMap { $0 }
             })

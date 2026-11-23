@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { clampPercent, HUB_VERSION, numberOrNull, toIsoTime } from "./shared.mjs";
 
 // Claude's own plan-usage endpoint: the same data the /usage dialog in Claude
@@ -160,10 +160,8 @@ function isExpired(credentials, now) {
 
 // The collector never uses the refresh token itself: rotating it outside
 // Claude Code could sign the CLI out. Claude Code renews its own sign-in
-// whenever it sends a request, so the smallest possible request does the job:
-// one word to the cheapest model, with tools, customizations and session
-// saving switched off. Only the variables Claude Code needs are passed on, so
-// keys from the private env file never reach it.
+// whenever it sends a request. The flags limit the request and managed
+// settings still apply.
 export function renewWithClaudeCode(binary, env) {
   const childEnv = { HOME: homedir(), PATH: env.PATH || "/usr/bin:/bin" };
   for (const key of ["USER", "LOGNAME", "TMPDIR", "LANG", "CLAUDE_CONFIG_DIR"]) {
@@ -188,10 +186,8 @@ const renewal = { attemptedAt: -Infinity, pending: null };
 
 // One attempt at a time for every card that shares the sign-in, and no more
 // than one attempt per retry period however often the cards refresh.
-function renewExpiredSignIn(env, now, renew) {
-  if (renewal.pending) return renewal.pending;
-  const binary = env.USAGE_HUB_CLAUDE_BIN?.trim();
-  if (!binary || now - renewal.attemptedAt < RENEWAL_RETRY_MS) return false;
+function renewExpiredSignIn(binary, env, now, renew) {
+  if (renewal.pending || now - renewal.attemptedAt < RENEWAL_RETRY_MS) return;
   renewal.attemptedAt = now;
   renewal.pending = Promise.resolve()
     .then(() => renew(binary, env))
@@ -199,22 +195,11 @@ function renewExpiredSignIn(env, now, renew) {
     .finally(() => {
       renewal.pending = null;
     });
-  return renewal.pending;
 }
 
-async function fetchUsage(credentials, fetchImpl, { now, canRenew }) {
+async function fetchUsage(credentials, fetchImpl) {
   if (!credentials) {
     return { ok: false, reason: "no_credentials", message: "Claude Code is not signed in on this Mac." };
-  }
-  if (isExpired(credentials, now)) {
-    return {
-      ok: false,
-      reason: "expired",
-      subscriptionType: credentials.subscriptionType,
-      message: canRenew
-        ? "Claude sign-in could not be renewed automatically. Open Claude Code in a terminal and sign in again if it asks."
-        : "Claude sign-in has expired. It renews the next time Claude Code runs in a terminal on this Mac.",
-    };
   }
   const response = await fetchImpl(USAGE_URL, {
     headers: {
@@ -247,9 +232,26 @@ export async function getClaudeOAuthUsage(
   { fetchImpl = fetch, now = Date.now(), renew = renewWithClaudeCode } = {},
 ) {
   if (!claudeOAuthUsageEnabled(env)) return null;
-  let credentials = await readClaudeOAuthCredentials(env);
-  if (isExpired(credentials, now) && await renewExpiredSignIn(env, now, renew)) {
-    credentials = await readClaudeOAuthCredentials(env);
+  const credentials = await readClaudeOAuthCredentials(env);
+  if (isExpired(credentials, now)) {
+    const binary = env.USAGE_HUB_CLAUDE_BIN?.trim();
+    let message = "Claude sign-in has expired. It renews the next time Claude Code runs in a terminal on this Mac.";
+    if (binary && isAbsolute(binary)) {
+      // Let the next poll read the renewed sign-in so manual refresh stays responsive.
+      renewExpiredSignIn(binary, env, now, renew);
+      message = renewal.pending
+        ? "Claude Code is renewing the sign-in. Check again after it finishes."
+        : "Claude sign-in could not be renewed automatically. Open Claude Code in a terminal and sign in again if it asks.";
+    } else if (binary) {
+      message = "Claude sign-in has expired. USAGE_HUB_CLAUDE_BIN needs an absolute path.";
+    }
+    return {
+      ok: false,
+      reason: "expired",
+      subscriptionType: credentials.subscriptionType,
+      message,
+      fetchedAt: new Date().toISOString(),
+    };
   }
   const key = createHash("sha256").update(JSON.stringify([claudeConfigDir(env),
     credentials?.accessToken, credentials?.expiresAt])).digest("hex");
@@ -263,10 +265,7 @@ export async function getClaudeOAuthUsage(
   record.pending = (async () => {
     let result;
     try {
-      result = await fetchUsage(credentials, fetchImpl, {
-        now,
-        canRenew: Boolean(env.USAGE_HUB_CLAUDE_BIN?.trim()),
-      });
+      result = await fetchUsage(credentials, fetchImpl);
     } catch (error) {
       result = {
         ok: false,
@@ -276,7 +275,7 @@ export async function getClaudeOAuthUsage(
     }
     result.fetchedAt = new Date().toISOString();
     record.result = result;
-    record.until = now + (result.ok || result.reason === "expired" ? CACHE_MS : FAILURE_BACKOFF_MS);
+    record.until = now + (result.ok ? CACHE_MS : FAILURE_BACKOFF_MS);
     record.pending = null;
     return result;
   })();

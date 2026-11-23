@@ -50,9 +50,9 @@ export async function POST(request: Request) {
   const db = getDb();
 
   for (const provider of snapshot.providers) {
-    const providerCapturedAt = clampToReceivedAt(
-      provider.updatedAt || snapshotGeneratedAt,
-    );
+    const providerCapturedAt = provider.updatedAt
+      ? clampToReceivedAt(provider.updatedAt)
+      : "";
     let storedProvider = {
       ...provider,
       updatedAt: providerCapturedAt,
@@ -93,19 +93,19 @@ export async function POST(request: Request) {
       .values({
         id: storedProvider.id,
         payload: JSON.stringify(storedProvider),
-        generatedAt: storedProvider.updatedAt || snapshot.generatedAt,
+        generatedAt: storedProvider.updatedAt || snapshotGeneratedAt,
         receivedAt,
       })
       .onConflictDoUpdate({
         target: remoteSnapshots.id,
         set: {
           payload: JSON.stringify(storedProvider),
-          generatedAt: storedProvider.updatedAt || snapshot.generatedAt,
+          generatedAt: storedProvider.updatedAt || snapshotGeneratedAt,
           receivedAt,
         },
       });
 
-    if (provider.state !== "ready") continue;
+    if (provider.state !== "ready" || !providerCapturedAt) continue;
     for (const window of provider.windows) {
       // A null usedPercent carries no trend information; skip the dead row.
       if (window.usedPercent === null) continue;
